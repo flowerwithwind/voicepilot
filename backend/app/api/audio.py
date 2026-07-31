@@ -4,11 +4,13 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 
+from app.config import AUDIO_DIR
 from app.models import TranscribeOut
 from app.services.asr import ASRError, get_provider
 from app.storage import db
-from app.storage.files import is_allowed, safe_store
+from app.storage.files import is_allowed, safe_audio_path, safe_store
 from app.utils.logging import get_logger
 
 logger = get_logger("audio")
@@ -42,17 +44,12 @@ def transcribe(
         result = get_provider().transcribe(path, duration=duration)
     except ASRError as e:
         raise HTTPException(status_code=502, detail=f"语音识别失败：{e}") from e
-    finally:
-        # 转录完成后清理上传的临时音频（M4 回听功能再按需保留）
-        try:
-            path.unlink(missing_ok=True)
-        except OSError:
-            logger.warning(f"清理临时音频失败：{path}")
-
+    # M4：保留音频片段供消息回听（audio_path 为相对 AUDIO_DIR 的路径）
     message = db.add_message(
         session_id=session["id"],
         role="user",
         content=result.text,
+        audio_path=path.relative_to(AUDIO_DIR).as_posix(),
         duration_ms=int((result.duration or 0) * 1000),
     )
     logger.info(
@@ -66,4 +63,13 @@ def transcribe(
         elapsed_ms=result.elapsed_ms,
         session_id=session["id"],
         message_id=message["id"],
+        audio_path=path.relative_to(AUDIO_DIR).as_posix(),
     )
+
+@router.get("/files/{file_path:path}")
+def get_audio_file(file_path: str) -> FileResponse:
+    """按相对路径读取已保存的音频片段（回听用），带路径穿越防护。"""
+    path = safe_audio_path(file_path)
+    if path is None or not path.is_file():
+        raise HTTPException(status_code=404, detail="音频文件不存在")
+    return FileResponse(path, media_type="audio/wav")

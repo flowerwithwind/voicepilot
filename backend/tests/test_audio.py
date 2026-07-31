@@ -80,3 +80,33 @@ def test_transcribe_missing_session(client):
 
 def test_transcribe_without_file(client):
     assert client.post("/api/audio/transcribe").status_code == 422
+
+def test_transcribe_keeps_audio_for_replay(client):
+    """M4：转录后保留音频文件，消息带 audio_path 且可通过回听接口读取。"""
+    r = client.post(
+        "/api/audio/transcribe",
+        files={"file": ("demo.wav", make_wav_bytes(0.5), "audio/wav")},
+    )
+    assert r.status_code == 200
+    sid = r.json()["session_id"]
+    msgs = client.get(f"/api/sessions/{sid}/messages").json()
+    assert len(msgs) == 1
+    audio_path = msgs[0]["audio_path"]
+    assert audio_path and audio_path.endswith(".wav")
+    assert msgs[0]["duration_ms"] == pytest.approx(500, abs=10)
+    # 回听接口可读取
+    resp = client.get(f"/api/audio/files/{audio_path}")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("audio/")
+    assert len(resp.content) > 0
+
+
+def test_audio_file_traversal_blocked(client):
+    """路径穿越/绝对路径一律 404。"""
+    for bad in ("../voicepilot.db", "..%2Fvoicepilot.db", "realtime/../../voicepilot.db"):
+        r = client.get(f"/api/audio/files/{bad}")
+        assert r.status_code == 404, (bad, r.status_code)
+
+
+def test_audio_file_missing(client):
+    assert client.get("/api/audio/files/no-such-file.wav").status_code == 404

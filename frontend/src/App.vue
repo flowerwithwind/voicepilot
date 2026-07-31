@@ -7,23 +7,58 @@
         </div>
         <div class="brand-text">
           <span class="brand-name">VoicePilot</span>
-          <span class="brand-sub">语音实时助手 · v0.2.0</span>
+          <span class="brand-sub">语音实时助手 · v0.4.0</span>
         </div>
       </div>
       <div class="topbar-right">
-        <span class="status"><i class="status-dot" /> 演示模式</span>
+        <nav class="nav">
+          <RouterLink to="/" class="nav-link" :class="{ active: route.path === '/' }">对话</RouterLink>
+          <RouterLink to="/settings" class="nav-link" :class="{ active: route.path.startsWith('/settings') }">设置</RouterLink>
+        </nav>
+        <button class="theme-btn" :title="isDark ? '切换到亮色' : '切换到暗色'" @click="toggleTheme">
+          <el-icon :size="16"><Moon v-if="isDark" /><Sunny v-else /></el-icon>
+        </button>
       </div>
     </header>
 
     <main class="main">
-      <ChatView />
+      <RouterView />
     </main>
   </div>
 </template>
 
 <script setup>
-import { Microphone } from '@element-plus/icons-vue'
-import ChatView from '@/views/ChatView.vue'
+import { onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
+import { Microphone, Moon, Sunny } from '@element-plus/icons-vue'
+
+const route = useRoute()
+const THEME_KEY = 'voicepilot-theme'
+const isDark = ref(true)
+
+function applyTheme(dark) {
+  document.documentElement.classList.toggle('light', !dark)
+}
+
+function toggleTheme() {
+  isDark.value = !isDark.value
+  applyTheme(isDark.value)
+  try {
+    localStorage.setItem(THEME_KEY, isDark.value ? 'dark' : 'light')
+  } catch {
+    /* ignore */
+  }
+}
+
+onMounted(() => {
+  try {
+    const saved = localStorage.getItem(THEME_KEY)
+    if (saved === 'light') isDark.value = false
+  } catch {
+    /* ignore */
+  }
+  applyTheme(isDark.value)
+})
 </script>
 
 <style scoped>
@@ -98,5 +133,46 @@ import ChatView from '@/views/ChatView.vue'
 }
 @media (max-width: 640px) {
   .topbar { padding: 12px 16px; }
+}
+
+.nav {
+  display: flex;
+  gap: 6px;
+  margin-right: 12px;
+}
+.nav-link {
+  color: rgba(255, 255, 255, 0.55);
+  text-decoration: none;
+  font-size: 13px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  transition: all 0.15s ease;
+}
+.nav-link:hover {
+  color: #e6e9f5;
+  background: rgba(255, 255, 255, 0.08);
+}
+.nav-link.active {
+  color: #fff;
+  background: rgba(99, 102, 241, 0.35);
+}
+.theme-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: #e6e9f5;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.theme-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+.topbar-right {
+  display: flex;
+  align-items: center;
 }
 </style>

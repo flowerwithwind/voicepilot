@@ -54,3 +54,32 @@ body {
   --el-text-color-regular: #c4c9e0;
   --el-fill-color-blank: #121830;
 }
+
+/* ===== 亮色主题（M4）===== */
+html.light {
+  color-scheme: light;
+  --vp-bg: #f4f6fb;
+  --vp-bg-soft: #ffffff;
+  --vp-text: #1c2237;
+  --vp-text-dim: rgba(28, 34, 55, 0.55);
+  --vp-accent: #4f46e5;
+}
+html.light body {
+  color: var(--vp-text);
+  background:
+    radial-gradient(1000px 500px at 15% -10%, rgba(99, 102, 241, 0.14), transparent 60%),
+    radial-gradient(800px 480px at 110% 110%, rgba(139, 92, 246, 0.1), transparent 55%),
+    linear-gradient(180deg, #f4f6fb 0%, #eef1f8 100%);
+}
+html.light :root,
+html.light body {
+  --el-bg-color: #ffffff;
+  --el-bg-color-overlay: #ffffff;
+  --el-border-color: rgba(28, 34, 55, 0.14);
+  --el-text-color-primary: #1c2237;
+  --el-text-color-regular: #3c445f;
+  --el-fill-color-blank: #ffffff;
+}
+html.light ::-webkit-scrollbar-thumb {
+  background: rgba(28, 34, 55, 0.22);
+}

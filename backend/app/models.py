@@ -21,6 +21,7 @@ class TranscribeOut(BaseModel):
     elapsed_ms: int
     session_id: int
     message_id: int
+    audio_path: str | None = None  # M4 回听
 
 
 class MessageOut(BaseModel):

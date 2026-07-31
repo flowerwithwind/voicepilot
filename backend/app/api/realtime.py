@@ -233,7 +233,7 @@ class RealtimeHandler:
             result = await asyncio.to_thread(get_provider().transcribe, wav_path, duration)
             if self._should_abort():
                 return
-            rel_path = str(wav_path.relative_to(AUDIO_DIR))
+            rel_path = wav_path.relative_to(AUDIO_DIR).as_posix()
             message = db.add_message(
                 self.session_id,
                 "user",

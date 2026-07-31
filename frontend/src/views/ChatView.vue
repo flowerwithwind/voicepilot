@@ -40,6 +40,9 @@
           :engine="m.engine"
           :via-voice="!!m.viaVoice"
           :streaming="!!m.streaming"
+          :audio-path="m.audioPath || ''"
+          :duration-ms="m.durationMs || 0"
+          @resend="resendMessage"
         />
         <div v-if="uploading" class="typing">
           <span class="dot" /><span class="dot" /><span class="dot" />
@@ -95,6 +98,25 @@
         />
         <p class="tip">点击开始说话，松开/再点停止 · 音频实时上送（PCM→VAD→增量ASR→回复→语音播报），说话可随时打断</p>
       </div>
+      <!-- 录音权限引导（首次访问） -->
+      <el-dialog v-model="guideVisible" title="开始使用 VoicePilot" width="min(92vw, 460px)" :show-close="false">
+        <div class="guide">
+          <ol>
+            <li><b>点击</b>下方麦克风按钮，浏览器会弹出麦克风权限请求</li>
+            <li>选择<em>允许</em>后，<b>开始说话</b>，文字会实时上屏</li>
+            <li>说完后点击麦克风<em>停止</em>，回复会自动语音播报；说话可随时打断</li>
+          </ol>
+          <div class="guide-compat">
+            <span class="compat-item" :class="compatOk.recorder ? 'ok' : 'bad'">录音：{{ compatOk.recorder ? '支持' : '不支持' }}</span>
+            <span class="compat-item" :class="compatOk.speech ? 'ok' : 'bad'">语音播报：{{ compatOk.speech ? '支持' : '不支持' }}</span>
+            <span class="compat-item" :class="compatOk.websocket ? 'ok' : 'bad'">实时通道：{{ compatOk.websocket ? '支持' : '不支持' }}</span>
+          </div>
+          <p class="guide-tip">如未弹出权限提示，请点击地址栏右侧的麦克风图标手动授权。</p>
+        </div>
+        <template #footer>
+          <el-button type="primary" @click="closeGuide">开始使用</el-button>
+        </template>
+      </el-dialog>
     </div>
   </div>
 </template>
@@ -110,6 +132,7 @@ import { useRecorder } from '@/composables/useRecorder'
 import { useRealtime } from '@/composables/useRealtime'
 import { useSpeech } from '@/composables/useSpeech'
 import { transcribe } from '@/api/audio'
+import { getSettings } from '@/api/settings'
 import { streamChat } from '@/api/chat'
 import {
   createSession as apiCreateSession,
@@ -132,6 +155,14 @@ const streaming = ref(false)
 const pendingTool = ref(null)
 const liveAsr = ref('')
 const listEl = ref(null)
+const guideVisible = ref(false)
+const GUIDE_KEY = 'voicepilot-guide-seen'
+const compatOk = reactive({
+  recorder: typeof MediaRecorder !== 'undefined' && !!navigator?.mediaDevices?.getUserMedia,
+  speech: typeof speechSynthesis !== 'undefined' && typeof SpeechSynthesisUtterance !== 'undefined',
+  websocket: typeof WebSocket !== 'undefined',
+})
+let ttsOptions = { rate: 1, pitch: 1, voiceName: '' }
 
 let msgSeq = 0
 let draft = null
@@ -228,6 +259,8 @@ async function switchSession(id) {
         content: r.content,
         engine: '',
         viaVoice: false,
+        audioPath: r.audio_path || '',
+        durationMs: r.duration_ms || 0,
       }))
   } catch (e) {
     ElMessage.error(e.message || '加载消息失败')
@@ -392,6 +425,17 @@ async function ensureRealtimeConnected() {
   return rt.status.value === 'connected'
 }
 
+async function resendMessage(text) {
+  if (!text || streaming.value) return
+  messages.value.push({ key: 'u-' + msgSeq++, role: 'user', content: text, viaVoice: false })
+  scrollBottom()
+  if (rt.supported.value && rt.status.value === 'connected') {
+    rt.sendUtterance(text)
+  } else {
+    await runChat(text, null, { saveUser: true })
+  }
+}
+
 async function handleStart() {
   if (rt.supported.value) {
     realtimeMode = await ensureRealtimeConnected()
@@ -441,6 +485,8 @@ async function handleStop() {
       content: result.text,
       viaVoice: true,
       engine: result.engine,
+      audioPath: result.audio_path || '',
+      durationMs: result.duration ? Math.round(result.duration * 1000) : 0,
     })
     scrollBottom()
     await runChat(result.text, null, { saveUser: false })
@@ -490,6 +536,8 @@ function wireRealtime() {
       content: ev.text,
       viaVoice: true,
       engine: ev.engine,
+      audioPath: ev.audio_path || '',
+      durationMs: ev.duration ? Math.round(ev.duration * 1000) : 0,
     })
     streaming.value = true
     scrollBottom()
@@ -514,7 +562,7 @@ function wireRealtime() {
     askApproval(info).then((ok) => rt.sendApproval(ev.request_id, ok))
   })
   rt.on('tts', (ev) => {
-    if (ev && ev.engine === 'browser' && ev.text) speech.speak(ev.text)
+    if (ev && ev.engine === 'browser' && ev.text) speech.speak(ev.text, ttsOptions)
   })
   rt.on('done', (ev) => {
     ensureDraft()
@@ -548,8 +596,36 @@ function wireRealtime() {
   })
 }
 
+function closeGuide() {
+  guideVisible.value = false
+  try {
+    localStorage.setItem(GUIDE_KEY, '1')
+  } catch {
+    /* ignore */
+  }
+}
+
 onMounted(async () => {
   wireRealtime()
+  try {
+    const st = await getSettings()
+    if (st && st.tts) {
+      ttsOptions = {
+        rate: Number(st.tts.rate) || 1,
+        pitch: Number(st.tts.pitch) || 1,
+        voiceName: st.tts.voice || '',
+      }
+    }
+  } catch {
+    /* 设置加载失败不影响主流程 */
+  }
+  let seen = false
+  try {
+    seen = localStorage.getItem(GUIDE_KEY) === '1'
+  } catch {
+    /* ignore */
+  }
+  guideVisible.value = !seen && recorder.isSupported.value
   await loadSessions()
   if (sessions.value.length) {
     await switchSession(sessions.value[0].id)
@@ -756,5 +832,43 @@ onMounted(async () => {
   .chat-body {
     padding: 0 14px;
   }
+}
+
+.guide ol {
+  margin: 0 0 14px;
+  padding-left: 20px;
+  line-height: 2;
+  font-size: 14px;
+  color: #c4c9e0;
+}
+.guide em {
+  color: #22d3ee;
+  font-style: normal;
+}
+.guide-compat {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.compat-item {
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: rgba(255, 255, 255, 0.5);
+}
+.compat-item.ok {
+  color: #6ee7b7;
+  border-color: rgba(52, 211, 153, 0.4);
+}
+.compat-item.bad {
+  color: #fca5a5;
+  border-color: rgba(248, 113, 113, 0.4);
+}
+.guide-tip {
+  margin: 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.4);
 }
 </style>

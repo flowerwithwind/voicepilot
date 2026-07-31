@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   listMessages: vi.fn(),
   createSession: vi.fn(),
   deleteSession: vi.fn(),
+  getSettings: vi.fn(),
 }))
 
 const rtMocks = vi.hoisted(() => {
@@ -70,7 +71,8 @@ vi.mock('@/api/sessions', () => ({
   createSession: mocks.createSession,
   deleteSession: mocks.deleteSession,
 }))
-vi.mock('@/api/audio', () => ({ transcribe: vi.fn() }))
+vi.mock('@/api/audio', () => ({ transcribe: vi.fn(), audioUrl: (p) => (p ? '/api/audio/files/' + p : '') }))
+vi.mock('@/api/settings', () => ({ getSettings: mocks.getSettings }))
 vi.mock('@/composables/useRealtime', () => ({ useRealtime: () => rtMocks.rt }))
 vi.mock('@/composables/useSpeech', () => ({ useSpeech: () => speechMocks }))
 vi.mock('@/composables/useRecorder', () => ({ useRecorder: () => recMocks }))
@@ -98,6 +100,12 @@ async function mountView() {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mocks.getSettings.mockResolvedValue({
+    model: { base_url: '', api_key: '', model: '', temperature: 0.7, max_tokens: 1024 },
+    asr: { engine: 'rule' },
+    tts: { rate: 1, pitch: 1, voice: '' },
+    capabilities: { asr: true, llm: false, tts: true },
+  })
   mocks.listSessions.mockResolvedValue({
     total: 1,
     items: [
@@ -213,7 +221,7 @@ describe('ChatView', () => {
     await flushPromises()
     expect(wrapper.text()).toContain('（演示转写）已识别')
     expect(wrapper.text()).toContain('好的')
-    expect(speechMocks.speak).toHaveBeenCalledWith('好的')
+    expect(speechMocks.speak).toHaveBeenCalledWith('好的', expect.objectContaining({ rate: 1, pitch: 1 }))
     rtMocks.emit('done', { message_id: 9, reply: '好的' })
     await flushPromises()
     // 停止录音 → flush

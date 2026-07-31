@@ -9,3 +9,9 @@ export function transcribe(blob, { sessionId, duration } = {}) {
   if (duration != null) form.append('duration', String(duration))
   return request('/api/audio/transcribe', { method: 'POST', body: form })
 }
+
+/** 拼接回听音频 URL（audio_path 相对 AUDIO_DIR）。 */
+export function audioUrl(audioPath) {
+  if (!audioPath) return ''
+  return '/api/audio/files/' + audioPath.split('/').map(encodeURIComponent).join('/')
+}

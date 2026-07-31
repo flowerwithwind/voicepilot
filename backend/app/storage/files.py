@@ -50,3 +50,14 @@ def save_realtime_pcm(pcm16: bytes, sample_rate: int = 16000) -> Path:
     path = REALTIME_DIR / f"{uuid.uuid4().hex}.wav"
     write_wav(path, pcm16, sample_rate)
     return path
+
+def safe_audio_path(rel: str) -> Path | None:
+    """将相对 AUDIO_DIR 的路径解析为绝对路径；越界（路径穿越）返回 None。"""
+    try:
+        base = AUDIO_DIR.resolve()
+        target = (base / rel).resolve()
+    except OSError:
+        return None
+    if target != base and base not in target.parents:
+        return None
+    return target

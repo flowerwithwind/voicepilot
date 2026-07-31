@@ -1,8 +1,8 @@
 <template>
   <div class="recorder" :class="state">
-    <!-- 电平条 -->
-    <div v-if="state === 'recording' || state === 'stopping'" class="level-bar">
-      <div class="level-fill" :style="{ width: (level * 100).toFixed(0) + '%' }" />
+    <!-- 实时波形（Canvas，录音中动画） -->
+    <div class="wave-wrap" :class="{ hidden: state !== 'recording' }">
+      <canvas ref="canvasEl" width="240" height="56" class="wave-canvas" />
     </div>
 
     <!-- 主按钮 -->
@@ -25,7 +25,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { Microphone } from '@element-plus/icons-vue'
 import { formatDuration } from '@/utils/format'
 
@@ -39,6 +39,71 @@ const props = defineProps({
 const emit = defineEmits(['start', 'stop'])
 
 const durationText = computed(() => formatDuration(props.duration, false))
+const canvasEl = ref(null)
+const history = [] // 最近 60 个电平采样（条形波形）
+let rafId = 0
+
+function draw() {
+  const canvas = canvasEl.value
+  if (!canvas) return
+  const ctx = canvas.getContext('2d')
+  const w = canvas.width
+  const h = canvas.height
+  ctx.clearRect(0, 0, w, h)
+  const n = history.length
+  if (!n) return
+  const barW = w / 60
+  for (let i = 0; i < 60; i += 1) {
+    const v = history[Math.max(0, n - 60 + i)] || 0
+    const bh = Math.max(3, v * (h - 8))
+    const x = i * barW + barW * 0.25
+    const y = (h - bh) / 2
+    const grad = ctx.createLinearGradient(0, y, 0, y + bh)
+    grad.addColorStop(0, '#22d3ee')
+    grad.addColorStop(1, '#6366f1')
+    ctx.fillStyle = grad
+    ctx.beginPath()
+    if (typeof ctx.roundRect === 'function') {
+      ctx.roundRect(x, y, barW * 0.5, bh, 3)
+    } else {
+      ctx.rect(x, y, barW * 0.5, bh)
+    }
+    ctx.fill()
+  }
+}
+
+function loop() {
+  draw()
+  rafId = requestAnimationFrame(loop)
+}
+
+watch(
+  () => props.state,
+  (st) => {
+    if (st === 'recording') {
+      history.length = 0
+      rafId = requestAnimationFrame(loop)
+    } else if (rafId) {
+      cancelAnimationFrame(rafId)
+      rafId = 0
+      draw()
+    }
+  },
+)
+
+watch(
+  () => props.level,
+  (lv) => {
+    if (props.state === 'recording') {
+      history.push(Math.max(0.02, Math.min(1, lv || 0)))
+      if (history.length > 120) history.shift()
+    }
+  },
+)
+
+onBeforeUnmount(() => {
+  if (rafId) cancelAnimationFrame(rafId)
+})
 
 function onClick() {
   if (props.state === 'recording') emit('stop')
@@ -51,7 +116,20 @@ function onClick() {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
+}
+.wave-wrap {
+  height: 56px;
+  border-radius: 14px;
+  background: rgba(34, 211, 238, 0.06);
+  border: 1px solid rgba(34, 211, 238, 0.18);
+  overflow: hidden;
+}
+.wave-wrap.hidden {
+  display: none;
+}
+.wave-canvas {
+  display: block;
 }
 .mic-btn {
   width: 84px;
@@ -89,22 +167,12 @@ function onClick() {
   70% { box-shadow: 0 0 0 22px rgba(239, 68, 68, 0); }
   100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
 }
-.level-bar {
-  width: 120px;
-  height: 6px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.12);
-  overflow: hidden;
-}
-.level-fill {
-  height: 100%;
-  border-radius: 999px;
-  background: linear-gradient(90deg, #34d399, #22d3ee);
-  transition: width 80ms linear;
-}
 .recorder-hint {
   font-size: 13px;
   color: rgba(255, 255, 255, 0.55);
   min-height: 18px;
+}
+html.light .recorder-hint {
+  color: rgba(28, 34, 55, 0.55);
 }
 </style>
