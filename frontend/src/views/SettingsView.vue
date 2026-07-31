@@ -50,7 +50,6 @@
         <el-form-item label="引擎">
           <el-select v-model="tts.engine">
             <el-option label="浏览器 speechSynthesis（零成本）" value="browser" />
-            <el-option label="edge-tts（占位）" value="edge" />
           </el-select>
         </el-form-item>
         <el-form-item label="音色（浏览器语音名，留空自动）">

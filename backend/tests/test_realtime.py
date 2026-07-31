@@ -155,3 +155,24 @@ def test_realtime_unknown_text_type(client):
         ev = ws.receive_json()
         assert ev["type"] == "error"
         assert "未知消息类型" in ev["detail"]
+
+
+
+def test_realtime_over_limit_force_ends_turn(client, monkeypatch):
+    """KN-09：分片累计超限后 force_end 当前语音段，回合不悬挂。"""
+    import app.api.realtime as realtime_mod
+
+    monkeypatch.setattr(realtime_mod, "MAX_TURN_BYTES", 40_000)  # 模拟 5MB 上限
+    with client.websocket_connect("/ws/chat") as ws:
+        ws.send_text(json.dumps({"type": "hello", "session_id": None}))
+        ws.receive_json()
+        # 第一片触发 speech_start（audio_buf 清空），第二片入缓冲，
+        # 第三片使 len(audio_buf)+len(data) 超过上限 → 触发 force_end
+        ws.send_bytes(sine_pcm(1))  # 32KB
+        ws.send_bytes(sine_pcm(1))
+        ws.send_bytes(sine_pcm(1))
+        events = _collect_until_done(ws)  # 无需静音分片也应正常结束
+        kinds = [e["type"] for e in events]
+        assert "asr.final" in kinds
+        assert any(e["type"] == "vad" and e["event"] == "speech_end" for e in events)
+        assert events[-1]["type"] == "done"

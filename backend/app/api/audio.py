@@ -17,6 +17,15 @@ logger = get_logger("audio")
 
 router = APIRouter(prefix="/api/audio", tags=["audio"])
 
+# KN-11：按扩展名映射 MIME，回放各格式可播
+_MIME_BY_EXT = {
+    ".wav": "audio/wav",
+    ".webm": "audio/webm",
+    ".ogg": "audio/ogg",
+    ".mp3": "audio/mpeg",
+    ".m4a": "audio/mp4",
+}
+
 
 @router.post("/transcribe", response_model=TranscribeOut)
 def transcribe(
@@ -72,4 +81,5 @@ def get_audio_file(file_path: str) -> FileResponse:
     path = safe_audio_path(file_path)
     if path is None or not path.is_file():
         raise HTTPException(status_code=404, detail="音频文件不存在")
-    return FileResponse(path, media_type="audio/wav")
+    ext = path.suffix.lower()
+    return FileResponse(path, media_type=_MIME_BY_EXT.get(ext, "audio/wav"))

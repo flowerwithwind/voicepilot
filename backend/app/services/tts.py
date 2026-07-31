@@ -1,7 +1,7 @@
-"""TTS 适配层：浏览器 speechSynthesis 优先（后端仅透出文本帧），厂商引擎留接口。
+"""TTS 适配层：浏览器 speechSynthesis 引擎（后端仅透出文本帧）。
 
 M3 实时链路使用：服务端把回复文本包装为 tts 事件帧，前端用 speechSynthesis 播报；
-后续可扩展 edge-tts / 厂商 API（audio 字段返回 base64 音频帧）。
+后续如需接入厂商引擎（如 edge-tts），可扩展 audio 字段返回 base64 音频帧。
 """
 from __future__ import annotations
 
@@ -34,18 +34,8 @@ class BrowserTTSProvider(TTSProvider):
         return {"type": "tts", "text": text, "engine": self.name, "audio": None}
 
 
-class EdgeTTSProvider(TTSProvider):
-    """edge-tts 占位：接入本地/厂商 TTS 的接口示例（未实现，演示时降级浏览器）。"""
-
-    name = "edge"
-
-    def synthesize(self, text: str, options: dict[str, Any] | None = None) -> dict[str, Any]:
-        raise TTSError("edge-tts 引擎尚未接入，请使用浏览器 TTS（默认）")
-
-
 _PROVIDERS: dict[str, type[TTSProvider]] = {
     "browser": BrowserTTSProvider,
-    "edge": EdgeTTSProvider,
 }
 
 

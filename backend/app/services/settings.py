@@ -76,6 +76,10 @@ def save_asr_settings(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def save_tts_settings(data: dict[str, Any]) -> dict[str, Any]:
+    # KN-06：未实现的引擎（如旧数据中的 edge）保存时归一化为 browser
+    data = {k: v for k, v in data.items() if k in _DEFAULT_TTS}
+    if data.get("engine") not in (None, "browser"):
+        data["engine"] = "browser"
     return _save(TTS_KEY, data, _DEFAULT_TTS)
 
 

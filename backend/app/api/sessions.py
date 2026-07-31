@@ -10,6 +10,10 @@ from app.audio.pcm import write_wav
 from app.config import AUDIO_DIR
 from app.models import MessageOut, SessionOut, SessionsOut
 from app.storage import db
+from app.storage.files import safe_audio_path
+from app.utils.logging import get_logger
+
+logger = get_logger("sessions")
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
@@ -40,6 +44,19 @@ def list_messages(session_id: int) -> list[MessageOut]:
 def delete_session(session_id: int) -> dict[str, bool]:
     if db.get_session(session_id) is None:
         raise HTTPException(status_code=404, detail="会话不存在")
+    # KN-10：删除会话时按消息 audio_path 清理磁盘音频文件（safe_audio_path 防穿越）。
+    # demo/ 为多会话共享的演示音频，保留不删（示例会话重建时会重写同名文件）。
+    for m in db.list_messages(session_id):
+        rel = m.get("audio_path")
+        if not rel or rel.startswith("demo/"):
+            continue
+        path = safe_audio_path(rel)
+        if path is None or not path.is_file():
+            continue
+        try:
+            path.unlink()
+        except OSError:
+            logger.warning(f"删除会话 {session_id} 音频失败：{path}")
     db.delete_session(session_id)
     return {"deleted": True}
 

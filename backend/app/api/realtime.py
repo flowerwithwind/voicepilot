@@ -102,7 +102,12 @@ class RealtimeHandler:
             return
         await self._ensure_session()
         if len(self.audio_buf) + len(data) > MAX_TURN_BYTES:
-            return  # 超长保护：丢弃后续分片，静音后自然结束
+            # KN-09：超长保护——丢弃超限分片，但强制结束当前语音段，
+            # 避免 VAD 收不到后续静音分片而无法触发 speech_end、回合悬挂。
+            ev = self.vad.force_end()
+            if ev:
+                await self._on_vad_event(ev)
+            return
         self.audio_buf.extend(data)
         for ev in self.vad.feed(data, PCM_SAMPLE_RATE):
             await self._on_vad_event(ev)

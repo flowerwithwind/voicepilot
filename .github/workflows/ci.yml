@@ -55,3 +55,41 @@ jobs:
         run: docker build -t voicepilot-backend:ci ./backend
       - name: Build frontend image
         run: docker build -t voicepilot-frontend:ci ./frontend
+
+  compose:
+    name: Docker Compose smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start compose stack
+        run: docker compose up -d --build
+      - name: Wait for backend health
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:8010/api/health >/dev/null; then
+              echo "backend healthy"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "backend health check failed"
+          docker compose logs backend
+          exit 1
+      - name: Wait for frontend proxy health
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:5174/api/health >/dev/null; then
+              echo "frontend proxy healthy"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "frontend health check failed"
+          docker compose logs frontend
+          exit 1
+      - name: Show stack logs
+        if: always()
+        run: docker compose logs --tail 50
+      - name: Tear down
+        if: always()
+        run: docker compose down --volumes

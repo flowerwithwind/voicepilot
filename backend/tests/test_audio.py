@@ -153,3 +153,23 @@ def test_legacy_backslash_stored_data_playable(client):
     r = client.get("/api/audio/files/realtime%5Clegacy-stored.wav")
     assert r.status_code == 200, r.text
     assert r.content == b"RIFFlegacyWAVE"
+
+
+
+def test_audio_file_mime_by_extension(client):
+    """KN-11：MIME 按扩展名映射，回放各类格式可播。"""
+    from app.config import AUDIO_DIR
+
+    cases = {
+        "mime.wav": "audio/wav",
+        "mime.webm": "audio/webm",
+        "mime.ogg": "audio/ogg",
+        "mime.mp3": "audio/mpeg",
+        "mime.m4a": "audio/mp4",
+    }
+    for name, expect in cases.items():
+        path = AUDIO_DIR / name
+        path.write_bytes(b"RIFF-test")
+        r = client.get(f"/api/audio/files/{name}")
+        assert r.status_code == 200, name
+        assert r.headers["content-type"].startswith(expect), (name, r.headers["content-type"])

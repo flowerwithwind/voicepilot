@@ -1,7 +1,7 @@
 # VoicePilot 已知问题清单（Known Issues）
 
 > 分级：**P1** 必须修复（阻断发布/功能不可用）｜ **P2** 建议近期修复（影响体验/数据一致性）｜ **P3** 可暂缓（边界场景/体验优化）
-> 当前状态：v1.0.0 无 P1；P2 共 4 项（2 项已修复）；P3 共 11 项
+> 当前状态：v1.0.0 无 P1；P2 共 4 项（4 项已修复）；P3 共 11 项（6 项已修复，余 5 项）
 
 ## P2
 
@@ -29,33 +29,35 @@
 ### KN-05 前端 bundle 体积 >500KB（1.08MB / gzip 357KB）
 - 原因：Element Plus 全量引入。建议路由懒加载 + 按需引入组件/图标（unplugin-vue-components）。
 
-### KN-06 edge-tts 为占位引擎
+### KN-06（已修复，C4）edge-tts 占位引擎已移除
 - 现象：设置页可选「edge」引擎，但 EdgeTTSProvider.synthesize 抛错并降级浏览器 TTS（附 note 说明）。
-- 建议：正式接入 edge-tts（Python 侧合成 base64 音频帧）或从设置页移除该选项。
+- 决策：优先尝试接入真实 edge-tts，但真实合成依赖网络，且实时链路在 _finish_reply 同步调用 synthesize，引入后会导致自动化测试不稳定；故选干净移除——删除 EdgeTTSProvider 与设置页占位选项，仅保留浏览器引擎（默认），设置保存时把未知引擎（如旧数据中的 edge）归一化为 browser。
 
 ### KN-07 示例会话音频为生成的静音 WAV
 - 现象：/api/sessions/demo 的回听音频是静音（演示回放链路用），不是真人录音。
 - 建议：如需更真实效果，可内置一段示例人声 WAV。
 
-### KN-08 CI 未跑 Docker Compose 冒烟
+### KN-08（已修复，C4）CI 未跑 Docker Compose 冒烟
 - 现象：.github/workflows/ci.yml 只构建镜像，未启动 compose 验证 nginx 反代与 WebSocket。
-- 建议：增加 compose up + curl health + ws ready 帧校验步骤。
+- 修复：新增 compose job——docker compose up -d --build 后轮询后端 8010 与前端 5174（nginx 反代 /api）健康检查，结束时 down --volumes 清理；WS 握手由 nginx 的 upgrade 反代配置保障，冒烟仅校验 HTTP 健康。
 
-### KN-09 实时音频超 5MB 后 VAD 不再喂入
+### KN-09（已修复，C4）实时音频超 5MB 后 VAD 不再喂入
 - 现象：单段音频超过 MAX_TURN_BYTES（5MB，约 160s 连续语音）后后续分片被丢弃，VAD 也收不到这些分片；若用户此时停止说话，静音检测无法触发 speech_end，回合悬挂（可手动 flush 恢复）。
-- 建议：丢弃分片时仍把分片喂给 VAD 或直接 force_end。
+- 修复：api/realtime.py::_on_audio 超限分支改为对当前语音段执行 vad.force_end() 并走正常 speech_end 流程，长语音自动结束回合，不再依赖后续静音分片。
 
-### KN-10 删除会话不清理磁盘音频文件
+### KN-10（已修复，C4）删除会话不清理磁盘音频文件
 - 现象：DELETE /api/sessions/{id} 级联删 DB 记录，但 audio/ 下文件残留。
-- 影响：本地 demo 影响小；长期运行磁盘增长。建议删除时按消息 audio_path 清理。
+- 影响：本地 demo 影响小；长期运行磁盘增长。
+- 修复：api/sessions.py::delete_session 先按消息 audio_path（经 safe_audio_path 防穿越解析）删除磁盘文件再删记录；demo/ 为多会话共享的演示音频，保留不删。
 
-### KN-11 /api/audio/files 固定返回 audio/wav
+### KN-11（已修复，C4）/api/audio/files 固定返回 audio/wav
 - 现象：webm/ogg/mp3 上传文件回放时 Content-Type 一律 audio/wav。
-- 影响：多数播放器按字节嗅探可正常播放；建议按扩展名映射 MIME。
+- 影响：多数播放器按字节嗅探可正常播放。
+- 修复：api/audio.py 按扩展名映射 MIME（wav→audio/wav、webm→audio/webm、ogg→audio/ogg、mp3→audio/mpeg、m4a→audio/mp4）。
 
-### KN-12 CORS 白名单不含 5174
+### KN-12（已修复，C4）CORS 白名单不含 5174
 - 现象：main.py CORS 仅允许 localhost:5173/127.0.0.1:5173；开发时若 Vite 跑在 5174 且绕过 proxy 直连后端会被拦截（当前开发流程走 Vite proxy，不受影响）。
-- 建议：允许来源改为配置项或覆盖 5173~5179。
+- 修复：main.py::cors_origins() 默认覆盖 5173~5179（localhost 与 127.0.0.1），并支持 VOICEPILOT_CORS_ORIGINS 环境变量覆盖。
 
 ### KN-13 LLM 同步阻塞调用
 - 现象：httpx 同步客户端在服务线程池/to_thread 中执行，单用户 demo 无感知；高并发下会占满线程池。

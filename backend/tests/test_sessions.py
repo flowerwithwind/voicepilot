@@ -57,3 +57,31 @@ def test_demo_session_seeded(client):
     resp = client.get("/api/audio/files/" + replay["timeline"][0]["audio_path"])
     assert resp.status_code == 200
     assert resp.content[:4] == b"RIFF"
+
+
+
+def test_delete_session_removes_audio_files(client):
+    """KN-10：删除会话时清理磁盘音频文件。"""
+    from app.config import AUDIO_DIR
+
+    r = client.post("/api/audio/transcribe", files={"file": ("a.wav", make_wav_bytes(0.2))})
+    assert r.status_code == 200
+    sid = r.json()["session_id"]
+    audio_path = r.json()["audio_path"]
+    saved = AUDIO_DIR / audio_path
+    assert saved.is_file()
+    assert client.delete(f"/api/sessions/{sid}").json() == {"deleted": True}
+    assert not saved.exists()
+    assert client.get(f"/api/sessions/{sid}/messages").status_code == 404
+
+
+def test_delete_demo_session_keeps_shared_audio(client):
+    """KN-10：demo 音频为多会话共享，删除单个示例会话不清理。"""
+    from app.config import AUDIO_DIR
+
+    sid1 = client.post("/api/sessions/demo").json()["id"]
+    client.post("/api/sessions/demo")
+    shared = AUDIO_DIR / "demo" / "demo_16.wav"
+    assert shared.is_file()
+    assert client.delete(f"/api/sessions/{sid1}").json() == {"deleted": True}
+    assert shared.is_file()

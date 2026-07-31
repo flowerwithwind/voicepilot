@@ -58,3 +58,12 @@ def test_test_connection_without_key(client):
     body = r.json()
     assert body["ok"] is False
     assert body["error"]
+
+
+
+def test_settings_tts_engine_normalized(client):
+    """KN-06：未实现的 tts 引擎（edge）保存时归一化为 browser。"""
+    r = client.put("/api/settings", json={"tts": {"engine": "edge"}})
+    assert r.status_code == 200
+    assert r.json()["tts"]["engine"] == "browser"
+    assert client.get("/api/settings").json()["tts"]["engine"] == "browser"

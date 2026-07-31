@@ -1,6 +1,7 @@
 """VoicePilot FastAPI 应用入口。"""
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -24,6 +25,15 @@ async def lifespan(app: FastAPI):
     yield
 
 
+def cors_origins() -> list[str]:
+    """CORS 白名单：默认覆盖 Vite 开发端口 5173~5179，可用 VOICEPILOT_CORS_ORIGINS 覆盖。"""
+    env = os.getenv("VOICEPILOT_CORS_ORIGINS", "").strip()
+    if env:
+        return [o.strip() for o in env.split(",") if o.strip()]
+    ports = range(5173, 5180)
+    return [f"http://localhost:{p}" for p in ports] + [f"http://127.0.0.1:{p}" for p in ports]
+
+
 app = FastAPI(
     title="VoicePilot API",
     description="语音实时助手后端：录音上传 → ASR 适配层 → 文本回显",
@@ -33,7 +43,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=cors_origins(),
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
