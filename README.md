@@ -1,5 +1,7 @@
 # VoicePilot · 语音实时助手
 
+![version](https://img.shields.io/badge/version-v1.1.0-6366f1)
+
 > 浏览器录音 → 流式 ASR → LLM 流式回复 → 流式 TTS 的实时语音对话闭环，支持语音触发工具调用（提醒/天气/时间/搜索）。
 > 求职作品集项目（AI 应用开发工程师），与 [DocMind 多模态文档助手](https://github.com/flowerwithwind/docmind) 共同构成「视觉+文本」「音频+流式」的多模态 AI 应用叙事。
 
@@ -10,10 +12,11 @@
 | 🎙️ 语音采集 | MediaRecorder 录音 + WebAudio 实时波形，支持暂停/继续/取消 |
 | ⚡ 实时链路 | WebSocket 双向流：PCM 分片上送 → VAD 静音检测 → 增量 ASR 上屏 → LLM 流式回复 → TTS 语音播报 |
 | 🗣️ 打断（barge-in） | 说话即可打断 TTS 播报，符合真实对话习惯 |
-| 🧰 语音 Agent | 意图 → 工具注册表（日程/提醒/天气/时间/搜索），敏感操作二次确认 |
+| 🧰 语音 Agent | 意图 → 工具注册表（日程/提醒/天气/时间/搜索/数据查询 query_data），敏感操作二次确认；query_data 内置 SQLite 样例库（电商订单/库存），支持无 Key 规则降级与敏感查询二次确认 |
 | 🔌 多引擎适配 | ASR：RuleEcho（无 Key 演示）→ Web Speech / OpenAI 兼容；TTS：speechSynthesis → 厂商 API |
-| 🧭 可观测 | 会话回放页按 ASR / 输入 / LLM / 工具 / TTS 阶段还原完整对话时间线，语音可回听 |
+| 🧭 可观测 | 会话回放页按 ASR / 输入 / LLM / 工具 / TTS 阶段还原完整对话时间线，语音可回听，并展示 LLM 耗时与 token（如「LLM 3.2s · ↑120 ↓480」） |
 | 🚀 开箱即用 | 全程无 API Key 也能跑通（浏览器原生 ASR/TTS + 规则降级），Docker Compose 一键部署 |
+| 🌐 CORS | 后端默认放行 localhost / 127.0.0.1 的 5173~5179 端口，可用 VOICEPILOT_CORS_ORIGINS 环境变量覆盖 |
 
 ## 🏗️ 架构
 
@@ -28,7 +31,7 @@ flowchart LR
     WS --> VAD[VAD 静音检测]
     VAD --> ASR[ASR 适配层<br/>RuleEcho 演示 / OpenAI 兼容]
     ASR --> LLM[LLM 适配层<br/>OpenAI 兼容 + 规则降级]
-    LLM --> TOOL[工具注册表<br/>提醒 / 天气 / 时间 / 搜索]
+    LLM --> TOOL[工具注册表<br/>提醒 / 天气 / 时间 / 搜索 / 数据查询]
     TOOL -->|二次确认| DB[(SQLite<br/>sessions / messages / reminders)]
     DB -->|回放接口| RP[会话回放页<br/>ASR/LLM/工具/TTS 时间线]
 
@@ -82,12 +85,20 @@ npm install
 npm run dev
 ```
 
+> CORS：后端默认允许 localhost / 127.0.0.1 的 5173~5179 端口直连（可用 `VOICEPILOT_CORS_ORIGINS` 覆盖）；开发时前端经 Vite proxy 同源访问，无需额外配置。
+
 ## 🎬 3 分钟面试演示脚本
 
 1. **0:00–0:30 内置示例**：点击侧栏「示例」加载内置会话（语音→工具二次确认→完成闭环），点右上角「回放」查看 ASR / LLM / 工具 / TTS 五阶段时间线，语音消息可回听。
 2. **0:30–1:30 实时语音**：点麦克风说「北京天气怎么样」——VAD 实时识别上屏 → LLM 流式回复 → 浏览器语音播报；播报中直接说话即可打断（barge-in）。
-3. **1:30–2:30 工具闭环**：说「明天 9 点提醒我开会」→ 弹窗二次确认 → 确认后提醒创建成功；再到设置页演示接入 DeepSeek/OpenAI 兼容 LLM（Key 脱敏展示、连接测试）。
-4. **2:30–3:00 工程亮点**：全程无 Key 可演示（规则回声 + 浏览器原生能力）；Docker Compose 一键部署；GitHub Actions CI（pytest + ruff + vitest + build + docker build）全绿；SQLite 持久化 + 路径穿越防护 + 全参数化 SQL。
+3. **1:30–2:30 工具闭环**：说「明天 9 点提醒我开会」→ 弹窗二次确认 → 确认后提醒创建成功；再说「查一下订单明细」→ 敏感查询二次确认 → 返回表格/摘要（query_data）；再到设置页演示接入 DeepSeek/OpenAI 兼容 LLM（Key 脱敏展示、连接测试）。
+4. **2:30–3:00 工程亮点**：全程无 Key 可演示（规则回声 + 浏览器原生能力）；回放页展示 LLM 耗时/token 与工具调用链；Docker Compose 一键部署；GitHub Actions CI（pytest + ruff + vitest + build + docker build + compose 冒烟）全绿；SQLite 持久化 + 路径穿越防护 + 全参数化 SQL。
+
+## ✅ 测试
+
+- 后端 pytest **92 项**全绿（含语音全链路：录音 → ASR → LLM → TTS → 打断 → 回放 → LLM 指标 → query_data 工具链），ruff check 0 告警
+- 前端 vitest **49 项**全绿，`npm run build` 成功
+- CI（GitHub Actions）：pytest + ruff + vitest + build + docker build / compose 冒烟全绿
 
 ## 📚 文档
 

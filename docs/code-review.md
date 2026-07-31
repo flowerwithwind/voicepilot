@@ -1,4 +1,6 @@
-# VoicePilot v1.0.0 代码审查报告
+# VoicePilot 代码审查报告（v1.0.0 M6 基线 + C1~C5 阶段复盘）
+
+> 结构：一~五节为 v1.0.0（M6）基线审查；六节为 C1~C5 阶段复盘（v1.1.0）。
 
 > 审查日期：2026-07-31 · 审查范围：backend/ + frontend/ 全部源码 · 结论：**无 P1 缺陷**，M6 修复 2 个 P2，P2/P3 详见 docs/known-issues.md
 > 审查方式：逐文件通读 + 全量回归（pytest 49 用例 / ruff 0 告警 / vitest 9 文件 43 用例 / vite build）+ 手工冒烟（Docker Compose、Playwright 回放页）
@@ -97,3 +99,27 @@
 2. 数据迁移：audio_path 统一正斜杠 + 旧数据兼容读取（KN-03）
 3. 前端 code-split（路由懒加载）降低首屏体积（KN-05）
 4. edge-tts 真实接入或从设置页移除占位（KN-06）
+
+## 六、C1~C5 阶段复盘（v1.1.0）
+
+> 复盘方式：每个里程碑结束后执行全量回归（后端 pytest + ruff、前端 vitest + build）与变更审查；结论：C1~C5 均无 P1 缺陷，已修复项归档于 docs/known-issues.md「已关闭」章节。
+
+| 里程碑 | 修复主题 | 核心变更 | 测试变化（后端 / 前端） |
+|---|---|---|---|
+| C1 | KN-03 历史 audio_path 反斜杠分隔符 | 读取侧归一化（app/utils/audio_path.py::normalize_audio_path，`\\` → `/`），覆盖文件回听（storage/files.py::safe_audio_path）、消息读取（storage/db.py::list_messages）与前端 URL 拼接（src/api/audio.js::audioUrl）；另提供一次性幂等迁移脚本 backend/scripts/migrate_audio_paths.py | 49 → 53 / 43 → 47 |
+| C2 | KN-04 回放采集 LLM 耗时与 token | LLMClient 流式 include_usage 采集（last_elapsed_ms / last_prompt_tokens / last_completion_tokens），assistant 消息落库 elapsed_ms / prompt_tokens / completion_tokens；回放 API 返回指标字段，回放页展示「LLM 3.2s · ↑120 ↓480」（无指标优雅隐藏） | 53 → 60 / 47 → 49 |
+| C3 | query_data 数据查询工具 | 工具注册表新增 query_data（内置 SQLite 样例库：电商订单/库存等 2~3 张表，随种子数据初始化）；自然语言 → 查询意图 + 参数 → 执行 → 表格/摘要回复；敏感查询二次确认（删除/全量导出/订单明细等）；无 LLM Key 规则降级（关键词 → SQL 模板）；会话回放包含工具链记录 | 60 → 85 / 49 |
+| C4 | KN-06/08/09/10/11/12 | KN-06 edge-tts 占位引擎移除（决策见下）；KN-08 CI 增加 Docker Compose 冒烟；KN-09 超长音频 force_end 消除回合悬挂；KN-10 删除会话清理磁盘音频；KN-11 MIME 按扩展名映射；KN-12 CORS 覆盖 5173~5179 且支持 VOICEPILOT_CORS_ORIGINS 覆盖 | 85 → 92 / 49 |
+| C5 | v1.1.0 回归与发布 | 全量回归（pytest 92 / ruff 0 告警 / vitest 49 / build 成功）；known-issues 归档 C1~C4 已修复项；本复盘补齐；README 能力表补 query_data / LLM 指标 / CORS 与实测测试数；版本统一 v1.1.0；tag + GitHub Release | 92 / 49 |
+
+### KN-06 决策（C4，edge-tts）
+
+优先尝试接入真实 edge-tts，但真实合成依赖网络，且实时链路在 _finish_reply 同步调用 synthesize，引入后会导致自动化测试不稳定；故选**干净移除**——删除 EdgeTTSProvider 与设置页占位选项，仅保留浏览器引擎（默认），设置保存时把未知引擎（如旧数据中的 edge）归一化为 browser。该决策已同步记录于 docs/known-issues.md（KN-06）。
+
+### C1~C5 遗留（如实保留，详见 known-issues.md）
+
+- KN-05 前端 bundle 体积 >500KB（Element Plus 全量引入）
+- KN-07 示例会话音频为生成的静音 WAV
+- KN-13 LLM 同步阻塞调用（to_thread/线程池承载）
+- KN-14 ScriptProcessor 为废弃 Web API
+- KN-15 回放页/示例数据无鉴权
