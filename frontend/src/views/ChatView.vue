@@ -8,6 +8,7 @@
       @select="selectSession"
       @create="createSession"
       @remove="removeSession"
+      @demo="loadDemo"
     />
 
     <div class="chat-body">
@@ -18,10 +19,16 @@
           <span class="session-title">{{ currentTitle }}</span>
           <span class="engine-tag" :title="'引擎：' + engine">{{ engine }}</span>
         </div>
-        <span v-if="rt.supported.value" class="rt-badge" :class="'rt-' + rt.status.value">
-          <span class="rt-dot" />
-          {{ rtLabel }}
-        </span>
+        <div class="head-actions">
+          <a v-if="activeSessionId" :href="'#/replay/' + activeSessionId" class="replay-link" title="查看会话时间线回放（ASR/LLM/工具/TTS）">
+            <el-icon :size="13"><VideoPlay /></el-icon>
+            回放
+          </a>
+          <span v-if="rt.supported.value" class="rt-badge" :class="'rt-' + rt.status.value">
+            <span class="rt-dot" />
+            {{ rtLabel }}
+          </span>
+        </div>
       </div>
 
       <!-- 不支持录音提示 -->
@@ -124,7 +131,7 @@
 <script setup>
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { MagicStick, WarningFilled } from '@element-plus/icons-vue'
+import { MagicStick, VideoPlay, WarningFilled } from '@element-plus/icons-vue'
 import MessageBubble from '@/components/MessageBubble.vue'
 import RecorderButton from '@/components/RecorderButton.vue'
 import SessionSidebar from '@/components/SessionSidebar.vue'
@@ -135,6 +142,7 @@ import { transcribe } from '@/api/audio'
 import { getSettings } from '@/api/settings'
 import { streamChat } from '@/api/chat'
 import {
+  createDemoSession as apiCreateDemo,
   createSession as apiCreateSession,
   deleteSession as apiDeleteSession,
   listMessages,
@@ -293,6 +301,21 @@ async function createSession() {
     scrollBottom()
   } catch (e) {
     ElMessage.error(e.message || '新建会话失败')
+  }
+}
+
+async function loadDemo() {
+  if (streaming.value) {
+    ElMessage.warning('回复生成中，请稍候再加载示例')
+    return
+  }
+  try {
+    const s = await apiCreateDemo()
+    sessions.value.unshift(s)
+    await switchSession(s.id)
+    ElMessage.success('已加载示例会话，点击右上角「回放」可查看完整时间线')
+  } catch (e) {
+    ElMessage.error(e.message || '加载示例会话失败')
   }
 }
 
@@ -681,6 +704,28 @@ onMounted(async () => {
   border: 1px solid rgba(99, 102, 241, 0.35);
   border-radius: 999px;
   padding: 2px 10px;
+}
+.head-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.replay-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #a5f3fc;
+  text-decoration: none;
+  background: rgba(34, 211, 238, 0.1);
+  border: 1px solid rgba(34, 211, 238, 0.3);
+  border-radius: 999px;
+  padding: 4px 12px;
+  transition: background 0.15s ease;
+}
+.replay-link:hover {
+  background: rgba(34, 211, 238, 0.2);
 }
 .rt-badge {
   display: inline-flex;

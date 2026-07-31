@@ -1,0 +1,28 @@
+services:
+  backend:
+    build: ./backend
+    container_name: voicepilot-backend
+    environment:
+      VOICEPILOT_DATA_DIR: /data
+      # 引擎可在 .env 中覆盖：VOICEPILOT_ASR=openai + 对应 Base URL/Key
+      VOICEPILOT_ASR: ${VOICEPILOT_ASR:-rule}
+      VOICEPILOT_ASR_BASE_URL: ${VOICEPILOT_ASR_BASE_URL:-}
+      VOICEPILOT_ASR_API_KEY: ${VOICEPILOT_ASR_API_KEY:-}
+      VOICEPILOT_ASR_MODEL: ${VOICEPILOT_ASR_MODEL:-whisper-1}
+    volumes:
+      - voicepilot-data:/data
+    ports:
+      - "${VOICEPILOT_PORT:-8010}:8010"
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    container_name: voicepilot-frontend
+    depends_on:
+      - backend
+    ports:
+      - "${VOICEPILOT_WEB_PORT:-5174}:80"
+    restart: unless-stopped
+
+volumes:
+  voicepilot-data:

@@ -19,3 +19,11 @@ export function createSession(title = '新会话') {
 export function deleteSession(sessionId) {
   return request('/api/sessions/' + sessionId, { method: 'DELETE' })
 }
+
+export function fetchReplay(sessionId) {
+  return request('/api/sessions/' + sessionId + '/replay')
+}
+
+export function createDemoSession() {
+  return request('/api/sessions/demo', { method: 'POST' })
+}

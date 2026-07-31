@@ -1,10 +1,13 @@
-"""会话 API：列表 / 消息详情（M1 基础版，M2 扩展增删改）。"""
+"""会话 API：列表 / 消息详情 / 回放 / 示例会话（M1 基础版，M2 增删改，M5 演示与可观测）。"""
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
+from app.audio.pcm import write_wav
+from app.config import AUDIO_DIR
 from app.models import MessageOut, SessionOut, SessionsOut
 from app.storage import db
 
@@ -39,3 +42,80 @@ def delete_session(session_id: int) -> dict[str, bool]:
         raise HTTPException(status_code=404, detail="会话不存在")
     db.delete_session(session_id)
     return {"deleted": True}
+
+
+@router.get("/{session_id}/replay")
+def replay_session(session_id: int) -> dict:
+    """回放时间线：按阶段归类（ASR/LLM/工具/TTS），供回放页与可观测使用。"""
+    session = db.get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    rows = db.list_messages(session_id)
+    timeline = []
+    for r in rows:
+        stage = "llm"
+        if r["role"] == "user":
+            stage = "asr" if r.get("audio_path") else "input"
+        elif r["role"] == "tool":
+            stage = "tool"
+        item = {
+            "id": r["id"],
+            "role": r["role"],
+            "stage": stage,
+            "text": r["content"],
+            "audio_path": r.get("audio_path"),
+            "duration_ms": r.get("duration_ms"),
+            "created_at": r["created_at"],
+        }
+        # assistant 消息含 TTS 播报阶段（浏览器端 speechSynthesis）
+        if r["role"] == "assistant":
+            item["tts"] = {"engine": "browser"}
+        timeline.append(item)
+    return {"session": session, "timeline": timeline}
+
+
+@router.post("/demo", response_model=SessionOut)
+def create_demo_session() -> SessionOut:
+    """创建内置示例会话：预置完整一轮「语音→ASR→LLM→工具二次确认→TTS」对话。
+
+    示例音频为生成的静音 WAV，供回听与回放页演示；提醒记录同步写入 reminders 表。
+    """
+    session = db.create_session(title="示例会话：语音工具调用")
+    remind_at = (
+        (datetime.now(timezone.utc).astimezone() + timedelta(days=1))
+        .replace(hour=9, minute=0, second=0, microsecond=0)
+        .isoformat(timespec="seconds")
+    )
+    audio1 = _demo_audio(1.6)
+    audio2 = _demo_audio(1.2)
+    db.add_message(session["id"], "user", "明天早上 9 点提醒我开周会", audio1, 1600)
+    db.add_message(
+        session["id"],
+        "assistant",
+        "好的，我来帮你设置提醒：明天 09:00 开周会。这是一个敏感操作，需要你确认后才会真正创建。",
+    )
+    db.add_message(
+        session["id"],
+        "tool",
+        f"工具调用：set_reminder(content=开周会, remind_at={remind_at}) → 等待用户确认",
+    )
+    db.add_message(session["id"], "user", "确认执行", audio2, 1200)
+    db.add_message(session["id"], "tool", "✅ 提醒已创建：开周会（明天 09:00）")
+    db.add_message(
+        session["id"],
+        "assistant",
+        "提醒已经设置好啦，明天早上 9 点我会准时提醒你。还有其他需要帮忙的吗？",
+    )
+    db.create_reminder(session["id"], "开周会", remind_at)
+    row = db.get_session(session["id"])
+    row["message_count"] = 6
+    return SessionOut(**row)
+
+
+def _demo_audio(seconds: float) -> str:
+    """生成一段静音演示音频（16kHz WAV），返回相对 AUDIO_DIR 的路径。"""
+    demo_dir = AUDIO_DIR / "demo"
+    demo_dir.mkdir(parents=True, exist_ok=True)
+    path = demo_dir / f"demo_{int(seconds * 10):02d}.wav"
+    write_wav(path, b"\x00\x00" * int(16000 * seconds), 16000)
+    return path.relative_to(AUDIO_DIR).as_posix()

@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   listMessages: vi.fn(),
   createSession: vi.fn(),
   deleteSession: vi.fn(),
+  createDemoSession: vi.fn(),
   getSettings: vi.fn(),
 }))
 
@@ -70,6 +71,7 @@ vi.mock('@/api/sessions', () => ({
   listMessages: mocks.listMessages,
   createSession: mocks.createSession,
   deleteSession: mocks.deleteSession,
+  createDemoSession: mocks.createDemoSession,
 }))
 vi.mock('@/api/audio', () => ({ transcribe: vi.fn(), audioUrl: (p) => (p ? '/api/audio/files/' + p : '') }))
 vi.mock('@/api/settings', () => ({ getSettings: mocks.getSettings }))
@@ -114,6 +116,7 @@ beforeEach(() => {
   })
   mocks.listMessages.mockResolvedValue([])
   mocks.createSession.mockResolvedValue({ id: 2, title: '新会话', message_count: 0 })
+  mocks.createDemoSession.mockResolvedValue({ id: 42, title: '示例会话：语音工具调用', message_count: 6 })
   recMocks.start.mockResolvedValue()
   recMocks.stop.mockResolvedValue(null)
   recMocks.state.value = 'idle'
@@ -229,6 +232,21 @@ describe('ChatView', () => {
     await flushPromises()
     expect(recMocks.stop).toHaveBeenCalled()
     expect(rtMocks.rt.sendFlush).toHaveBeenCalled()
+  })
+
+  it('loads built-in demo session via sidebar demo button', async () => {
+    mocks.listMessages.mockResolvedValue([
+      { id: 1, role: 'user', content: '明天早上 9 点提醒我开周会', audio_path: 'demo/demo_16.wav', duration_ms: 1600 },
+      { id: 2, role: 'assistant', content: '好的，我来帮你设置提醒', audio_path: null, duration_ms: null },
+    ])
+    const wrapper = await mountView()
+    await wrapper.find('.demo-btn').trigger('click')
+    await flushPromises()
+    await flushPromises()
+    expect(mocks.createDemoSession).toHaveBeenCalledTimes(1)
+    expect(mocks.listMessages).toHaveBeenCalledWith(42)
+    expect(wrapper.text()).toContain('示例会话：语音工具调用')
+    expect(wrapper.find('.replay-link').attributes('href')).toBe('#/replay/42')
   })
 
   it('asks realtime approval over websocket for sensitive tools', async () => {

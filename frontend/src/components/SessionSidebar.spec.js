@@ -32,6 +32,8 @@ describe('SessionSidebar', () => {
     expect(wrapper.emitted('remove')[0]).toEqual([1])
     await wrapper.find('.add-btn').trigger('click')
     expect(wrapper.emitted('create')).toBeTruthy()
+    await wrapper.find('.demo-btn').trigger('click')
+    expect(wrapper.emitted('demo')).toBeTruthy()
   })
 
   it('shows empty state', () => {

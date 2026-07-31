@@ -7,7 +7,7 @@
         </div>
         <div class="brand-text">
           <span class="brand-name">VoicePilot</span>
-          <span class="brand-sub">语音实时助手 · v0.4.0</span>
+          <span class="brand-sub">语音实时助手 · v0.5.0</span>
         </div>
       </div>
       <div class="topbar-right">
