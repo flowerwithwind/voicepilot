@@ -7,7 +7,7 @@
         </div>
         <div class="brand-text">
           <span class="brand-name">VoicePilot</span>
-          <span class="brand-sub">语音实时助手 · v0.1.0</span>
+          <span class="brand-sub">语音实时助手 · v0.2.0</span>
         </div>
       </div>
       <div class="topbar-right">
@@ -92,15 +92,11 @@ import ChatView from '@/views/ChatView.vue'
   flex: 1;
   min-height: 0;
   display: flex;
-  justify-content: center;
 }
 .main :deep(.chat) {
   width: 100%;
-  max-width: 860px;
-  padding: 0 28px;
 }
 @media (max-width: 640px) {
   .topbar { padding: 12px 16px; }
-  .main :deep(.chat) { padding: 0 14px; }
 }
 </style>

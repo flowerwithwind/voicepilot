@@ -25,6 +25,18 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, id);
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value_json TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS reminders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    content TEXT NOT NULL,
+    remind_at TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    done INTEGER NOT NULL DEFAULT 0
+);
 """
 
 
@@ -99,6 +111,16 @@ def get_session(session_id: int) -> dict[str, Any] | None:
         conn.close()
 
 
+def delete_session(session_id: int) -> None:
+    """删除会话（消息级联删除）。"""
+    conn = _conn()
+    try:
+        conn.execute("DELETE FROM sessions WHERE id=?", (session_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def list_sessions(limit: int = 50) -> list[dict[str, Any]]:
     conn = _conn()
     try:
@@ -129,7 +151,69 @@ def wipe_data() -> None:
     try:
         conn.execute("DELETE FROM messages")
         conn.execute("DELETE FROM sessions")
+        conn.execute("DELETE FROM reminders")
+        conn.execute("DELETE FROM settings")
         conn.commit()
+    finally:
+        conn.close()
+
+
+def get_setting(key: str, default: Any = None) -> Any:
+    """读取设置（JSON 解码）。"""
+    conn = _conn()
+    try:
+        row = conn.execute("SELECT value_json FROM settings WHERE key=?", (key,)).fetchone()
+        return jloads(row["value_json"], default) if row else default
+    finally:
+        conn.close()
+
+
+def set_setting(key: str, value: Any) -> None:
+    """写入设置（UPSERT）。"""
+    conn = _conn()
+    try:
+        conn.execute(
+            "INSERT INTO settings(key, value_json) VALUES(?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json",
+            (key, json.dumps(value, ensure_ascii=False)),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def create_reminder(session_id: int, content: str, remind_at: str) -> dict[str, Any]:
+    now = now_iso()
+    conn = _conn()
+    try:
+        cur = conn.execute(
+            "INSERT INTO reminders(session_id, content, remind_at, created_at) VALUES(?,?,?,?)",
+            (session_id, content, remind_at, now),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM reminders WHERE id=?", (cur.lastrowid,)).fetchone()
+        return dict(row)
+    finally:
+        conn.close()
+
+
+def list_reminders(limit: int = 50) -> list[dict[str, Any]]:
+    conn = _conn()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM reminders ORDER BY remind_at ASC LIMIT ?", (limit,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def delete_reminder(reminder_id: int) -> bool:
+    conn = _conn()
+    try:
+        cur = conn.execute("DELETE FROM reminders WHERE id=?", (reminder_id,))
+        conn.commit()
+        return cur.rowcount > 0
     finally:
         conn.close()
 

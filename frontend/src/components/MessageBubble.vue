@@ -3,10 +3,10 @@
     <div v-if="role === 'assistant'" class="avatar">VP</div>
     <div class="bubble" :class="roleClass">
       <div v-if="role === 'user'" class="voice-tag">
-        <el-icon :size="12"><Microphone /></el-icon>
-        语音
+        <el-icon :size="12"><Microphone v-if="viaVoice" /><EditPen v-else /></el-icon>
+        {{ viaVoice ? '语音' : '文本' }}
       </div>
-      <p class="content">{{ content }}</p>
+      <p class="content">{{ content }}<span v-if="streaming" class="cursor" /></p>
       <span class="meta">
         <template v-if="engine">· {{ engine }}</template>
       </span>
@@ -16,12 +16,14 @@
 
 <script setup>
 import { computed } from 'vue'
-import { Microphone } from '@element-plus/icons-vue'
+import { EditPen, Microphone } from '@element-plus/icons-vue'
 
 const props = defineProps({
   role: { type: String, default: 'user' }, // user | assistant
   content: { type: String, default: '' },
   engine: { type: String, default: '' },
+  viaVoice: { type: Boolean, default: false },
+  streaming: { type: Boolean, default: false },
 })
 const roleClass = computed(() => (props.role === 'assistant' ? 'assistant' : 'user'))
 </script>
@@ -79,6 +81,19 @@ const roleClass = computed(() => (props.role === 'assistant' ? 'assistant' : 'us
 .content {
   margin: 0;
   white-space: pre-wrap;
+}
+.cursor {
+  display: inline-block;
+  width: 2px;
+  height: 14px;
+  margin-left: 2px;
+  vertical-align: -2px;
+  background: #a5b4fc;
+  animation: blink 1s infinite;
+}
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.1; }
 }
 .meta {
   display: block;

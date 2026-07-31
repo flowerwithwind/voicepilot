@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import audio, health, sessions
+from app.api import audio, chat, health, reminders, sessions, settings
 from app.config import VERSION, ensure_dirs
 from app.storage import db
 from app.utils.logging import get_logger
@@ -39,4 +39,7 @@ app.add_middleware(
 
 app.include_router(health.router)
 app.include_router(audio.router)
+app.include_router(chat.router)
 app.include_router(sessions.router)
+app.include_router(settings.router)
+app.include_router(reminders.router)

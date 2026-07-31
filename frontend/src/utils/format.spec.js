@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatBytes, formatClock, formatDuration } from './format'
+import { formatBytes, formatClock, formatDateTime, formatDuration } from './format'
 
 describe('formatDuration', () => {
   it('formats seconds under a minute', () => {
@@ -25,5 +25,13 @@ describe('formatClock', () => {
     expect(formatClock('2026-07-31T12:05:00')).toBe('12:05')
     expect(formatClock('')).toBe('')
     expect(formatClock('bad')).toBe('')
+  })
+})
+
+describe('formatDateTime', () => {
+  it('formats iso to MM-DD HH:mm', () => {
+    expect(formatDateTime('2026-07-31T12:05:00')).toBe('07-31 12:05')
+    expect(formatDateTime('')).toBe('')
+    expect(formatDateTime('bad')).toBe('')
   })
 })

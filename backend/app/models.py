@@ -1,6 +1,8 @@
 """Pydantic 响应模型。"""
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -45,3 +47,29 @@ class SessionsOut(BaseModel):
 
 class ErrorOut(BaseModel):
     detail: str = Field(..., description="中文错误提示")
+
+class ChatRequest(BaseModel):
+    """聊天请求：会话 + 文本 + 工具二次确认（可选）。"""
+    session_id: int | None = None
+    content: str
+    approval: dict[str, Any] | None = None
+    save_user: bool = True  # 语音流程已由 transcribe 落库，置 False 避免重复
+
+class CapabilitiesOut(BaseModel):
+    ok: bool
+    error: str | None = None
+
+
+class SettingsOut(BaseModel):
+    model: dict[str, Any]
+    asr: dict[str, Any]
+    tts: dict[str, Any]
+    capabilities: dict[str, bool]
+
+class ReminderOut(BaseModel):
+    id: int
+    session_id: int
+    content: str
+    remind_at: str
+    created_at: str
+    done: int = 0

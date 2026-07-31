@@ -7,3 +7,15 @@ export function listSessions(limit = 50) {
 export function listMessages(sessionId) {
   return request('/api/sessions/' + sessionId + '/messages')
 }
+
+export function createSession(title = '新会话') {
+  return request('/api/sessions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title }),
+  })
+}
+
+export function deleteSession(sessionId) {
+  return request('/api/sessions/' + sessionId, { method: 'DELETE' })
+}
