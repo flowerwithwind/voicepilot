@@ -39,10 +39,10 @@ from app.services import settings as settings_svc
 from app.services.asr import get_provider
 from app.services.chat import build_history, rule_reply, tool_preview
 from app.services.tools import (
-    SENSITIVE_TOOLS,
     TOOL_SCHEMAS,
     detect_tool_intent,
     execute_tool,
+    is_tool_sensitive,
 )
 from app.services.tts import synthesize
 from app.storage import db
@@ -286,7 +286,7 @@ class RealtimeHandler:
             }
         )
         approved = True
-        if tool in SENSITIVE_TOOLS:
+        if is_tool_sensitive(tool, args):
             await self.ws.send_json({"type": "await_approval", "request_id": request_id})
             approved = await self._wait_approval(request_id)
             if self._should_abort():
@@ -296,7 +296,7 @@ class RealtimeHandler:
                 return
         try:
             result = await asyncio.to_thread(execute_tool, self.session_id, tool, args)
-        except ValueError as e:
+        except (ValueError, TypeError) as e:
             await self.ws.send_json({"type": "error", "detail": str(e)})
             return
         db.add_message(self.session_id, "tool", f"[{tool}] {result}")

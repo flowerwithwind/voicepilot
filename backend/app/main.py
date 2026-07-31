@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import audio, chat, health, realtime, reminders, sessions, settings
 from app.config import VERSION, ensure_dirs
+from app.services import query_data
 from app.storage import db
 from app.utils.logging import get_logger
 
@@ -18,6 +19,7 @@ logger = get_logger("main")
 async def lifespan(app: FastAPI):
     ensure_dirs()
     db.init_db()
+    query_data.init_db()
     logger.info("VoicePilot 启动完成")
     yield
 

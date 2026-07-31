@@ -13,6 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.services import query_data
 from app.storage import db
 
 
@@ -20,6 +21,7 @@ from app.storage import db
 def client():
     with TestClient(app) as c:
         db.wipe_data()
+        query_data.reseed()
         yield c
 
 

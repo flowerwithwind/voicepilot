@@ -10,10 +10,11 @@ from typing import Any
 from app.llm.client import LLMError
 from app.services import settings as settings_svc
 from app.services.tools import (
-    SENSITIVE_TOOLS,
     TOOL_SCHEMAS,
     detect_tool_intent,
     execute_tool,
+    is_tool_sensitive,
+    query_data_preview,
 )
 from app.storage import db
 from app.utils.logging import get_logger
@@ -105,7 +106,7 @@ def stream_chat(
         request_id = uuid.uuid4().hex[:12]
         preview = tool_preview(tool, args)
         yield {"type": "tool_call", "request_id": request_id, "tool": tool, "args": args, "preview": preview}
-        if tool in SENSITIVE_TOOLS:
+        if is_tool_sensitive(tool, args):
             yield {"type": "await_approval", "request_id": request_id}
         else:
             # 非敏感工具直接执行
@@ -135,6 +136,8 @@ def tool_preview(tool: str, args: dict[str, Any]) -> str:
         return f"查询天气：{args.get('city', '')}"
     if tool == "web_search":
         return f"搜索：{args.get('query', '')}"
+    if tool == "query_data":
+        return query_data_preview(args)
     return f"执行工具：{tool}"
 
 
@@ -148,7 +151,7 @@ def _run_tool_and_reply(
     """执行工具 → 结果注入 → 生成最终回复（llm_metrics：KN-04 本轮 LLM 指标）。"""
     try:
         result = execute_tool(session_id, tool, args)
-    except ValueError as e:
+    except (ValueError, TypeError) as e:
         yield {"type": "error", "detail": str(e)}
         return
     db.add_message(session_id, "tool", f"[{tool}] {result}")
@@ -197,7 +200,7 @@ def _plain_reply(session_id: int, user_text: str) -> Iterator[dict]:
                     "args": args,
                     "preview": tool_preview(ev["name"], args),
                 }
-                if ev["name"] in SENSITIVE_TOOLS:
+                if is_tool_sensitive(ev["name"], args):
                     yield {"type": "await_approval", "request_id": request_id}
                     return
                 yield from _run_tool_and_reply(

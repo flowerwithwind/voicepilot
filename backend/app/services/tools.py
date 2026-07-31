@@ -1,7 +1,7 @@
-"""工具注册表：意图检测 + 执行（提醒/时间/天气/搜索）。
+"""工具注册表：意图检测 + 执行（提醒/时间/天气/搜索/数据查询）。
 
 M2 以规则检测为主；LLM 模式通过 tool schema 调用同一执行器。
-敏感操作（reminder）需要前端二次确认后才执行。
+敏感操作（reminder / query_data 的删除、全量导出、订单明细）需要前端二次确认后才执行。
 """
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from app.services import query_data
 from app.storage import db
 
 # ---- 工具 schema（OpenAI 兼容 tools 参数） ----
@@ -60,6 +61,55 @@ TOOL_SCHEMAS: list[dict] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "query_data",
+            "description": (
+                "查询内置电商样例数据库（orders 订单 / products 商品库存 / customers 客户）："
+                "list 明细列表、summary 汇总统计、export 全量导出、delete 删除；"
+                "其中删除、全量导出、订单明细属敏感操作，会请求用户二次确认"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "table": {
+                        "type": "string",
+                        "enum": ["orders", "products", "customers"],
+                        "description": "数据表：orders 订单 / products 商品库存 / customers 客户",
+                    },
+                    "action": {
+                        "type": "string",
+                        "enum": ["list", "summary", "export", "delete"],
+                        "description": "操作：list 明细列表 / summary 汇总统计 / export 全量导出（敏感） / delete 删除（敏感，必须带筛选条件）",
+                    },
+                    "filters": {
+                        "type": "object",
+                        "description": "筛选条件：status 订单状态 / city 城市 / customer 客户名 / amount_gt、amount_lt 金额范围 / stock_lt、stock_gt 库存范围 / category 分类 / name、keyword 关键字",
+                        "properties": {
+                            "status": {"type": "string"},
+                            "city": {"type": "string"},
+                            "customer": {"type": "string"},
+                            "keyword": {"type": "string"},
+                            "amount_gt": {"type": "number"},
+                            "amount_lt": {"type": "number"},
+                            "stock_lt": {"type": "number"},
+                            "stock_gt": {"type": "number"},
+                            "category": {"type": "string"},
+                            "name": {"type": "string"},
+                        },
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 100,
+                        "description": "返回条数上限，默认 10",
+                    },
+                },
+                "required": ["table"],
+            },
+        },
+    },
 ]
 
 SENSITIVE_TOOLS = {"set_reminder"}
@@ -71,7 +121,61 @@ _TOMORROW_RE = re.compile(r"明天|明早|明晚")
 _TIME_RE = re.compile(r"(?:时间|几点了|现在几点|日期|今天几号|星期)")
 _WEATHER_RE = re.compile(r"(?P<city>[一-龥]{2,6}?)(?:的)?(?:天气|气温|下雨|温度)(?:怎么样|如何)?$")
 _WEATHER_NO_CITY_RE = re.compile(r"(?:天气|气温|下雨|温度)")
-_SEARCH_RE = re.compile(r"(?:搜索|查一下|查查|百度|搜一下)s*(?P<query>.{1,40})")
+_SEARCH_RE = re.compile(r"(?:搜索|查一下|查查|百度|搜一下)\s*(?P<query>.{1,40})")
+
+# ---- C3 query_data 规则意图（无 Key 演示：关键词 → SQL 模板） ----
+_DATA_ORDER_SUMMARY_RE = re.compile(r"(?:订单汇总|订单统计|销售额|卖了多少钱|多少订单|订单总数|总金额)")
+_DATA_ORDER_DETAIL_RE = re.compile(r"(?:订单明细|查看订单|查订单|订单列表|订单详情|有哪些订单|看看订单|订单)")
+_DATA_STOCK_RE = re.compile(r"(?:库存|缺货|补货)")
+_DATA_PRODUCT_RE = re.compile(r"(?:有哪些商品|商品列表|产品列表|查商品|看看商品|商品)")
+_DATA_CUSTOMER_RE = re.compile(r"(?:客户|会员|用户列表|有哪些客户)")
+_DATA_EXPORT_RE = re.compile(r"(?:导出|全量|全部数据|下载数据)")
+_DATA_DELETE_RE = re.compile(r"(?:删除|清空|移除).{0,8}(?:订单|数据)")
+_DATA_CITY_RE = re.compile(r"(北京|上海|广州|深圳|杭州|成都)")
+_DATA_STATUS_RE = re.compile(r"(未发货|待发货|已发货|已完成|已取消)")
+_DATA_STOCK_LT_RE = re.compile(r"(?:库存)?(?:不足|少于|低于|小于)\s*(\d+)")
+_DATA_AMOUNT_GT_RE = re.compile(r"(?:超过|高于|大于|以上)\s*(\d+)\s*元?")
+_DATA_AMOUNT_LT_RE = re.compile(r"(?:低于|少于|小于|不超过)\s*(\d+)\s*元?")
+
+_QUERY_DATA_ACTION_LABELS = {"list": "明细", "summary": "汇总", "export": "全量导出", "delete": "删除"}
+_QUERY_DATA_TABLE_LABELS = {"orders": "订单", "products": "商品库存", "customers": "客户"}
+
+
+def is_tool_sensitive(name: str, args: dict[str, Any]) -> bool:
+    """工具级敏感判定：query_data 按参数（删除 / 全量导出 / 订单明细）判定。"""
+    if name in SENSITIVE_TOOLS:
+        return True
+    if name == "query_data":
+        return query_data.is_sensitive(args)
+    return False
+
+
+def query_data_preview(args: dict[str, Any]) -> str:
+    """数据查询预览文案（供二次确认弹窗展示）。"""
+    table = _QUERY_DATA_TABLE_LABELS.get(str(args.get("table") or ""), "数据表")
+    action = _QUERY_DATA_ACTION_LABELS.get(str(args.get("action") or "list"), str(args.get("action") or "list"))
+    return f"数据查询：{table} {action}"
+
+
+def _query_data_args(text: str, table: str, action: str = "list") -> dict[str, Any]:
+    """规则模式：关键词 → query_data 参数（表 / 动作 / 筛选条件 / limit）。"""
+    filters: dict[str, Any] = {}
+    m = _DATA_STATUS_RE.search(text)
+    if m and table == "orders":
+        filters["status"] = m.group(1)
+    m = _DATA_CITY_RE.search(text)
+    if m and table in ("orders", "customers"):
+        filters["city"] = m.group(1)
+    m = _DATA_AMOUNT_GT_RE.search(text)
+    if m and table == "orders":
+        filters["amount_gt"] = int(m.group(1))
+    m = _DATA_AMOUNT_LT_RE.search(text)
+    if m and table == "orders":
+        filters["amount_lt"] = int(m.group(1))
+    m = _DATA_STOCK_LT_RE.search(text)
+    if m and table == "products":
+        filters["stock_lt"] = int(m.group(1))
+    return {"table": table, "action": action, "filters": filters, "limit": 10}
 
 
 def detect_tool_intent(text: str) -> tuple[str, dict[str, Any]] | None:
@@ -104,6 +208,26 @@ def detect_tool_intent(text: str) -> tuple[str, dict[str, Any]] | None:
         return "query_weather", {"city": m.group("city")}
     if _WEATHER_NO_CITY_RE.search(t):
         return "query_weather", {"city": "上海"}
+    # C3：数据查询（先于通用搜索，避免「查订单」等被吞进 web_search）
+    if _DATA_DELETE_RE.search(t):
+        table = "products" if _DATA_STOCK_RE.search(t) else "orders"
+        return "query_data", _query_data_args(t, table, action="delete")
+    if _DATA_EXPORT_RE.search(t):
+        if _DATA_STOCK_RE.search(t):
+            table = "products"
+        elif _DATA_CUSTOMER_RE.search(t):
+            table = "customers"
+        else:
+            table = "orders"
+        return "query_data", _query_data_args(t, table, action="export")
+    if _DATA_ORDER_SUMMARY_RE.search(t):
+        return "query_data", _query_data_args(t, "orders", action="summary")
+    if _DATA_ORDER_DETAIL_RE.search(t):
+        return "query_data", _query_data_args(t, "orders", action="list")
+    if _DATA_STOCK_RE.search(t) or _DATA_PRODUCT_RE.search(t):
+        return "query_data", _query_data_args(t, "products", action="list")
+    if _DATA_CUSTOMER_RE.search(t):
+        return "query_data", _query_data_args(t, "customers", action="list")
     m = _SEARCH_RE.search(t)
     if m and m.group("query"):
         return "web_search", {"query": m.group("query").strip()}
@@ -135,4 +259,6 @@ def execute_tool(session_id: int, name: str, args: dict[str, Any]) -> str:
     if name == "web_search":
         q = str(args.get("query", ""))
         return f"关于「{q}」的搜索结果：未接入真实搜索，这是演示占位结果（共 3 条）"
+    if name == "query_data":
+        return query_data.run_query(args)
     raise ValueError(f"未知工具：{name}")
