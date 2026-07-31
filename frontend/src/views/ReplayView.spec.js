@@ -23,7 +23,7 @@ function replayPayload() {
     },
     timeline: [
       { id: 1, role: 'user', stage: 'asr', text: '明天早上 9 点提醒我开周会', audio_path: 'demo/demo_16.wav', duration_ms: 1600, created_at: '2026-07-31T10:00:00' },
-      { id: 2, role: 'assistant', stage: 'llm', text: '好的，需要确认后才会创建', audio_path: null, duration_ms: null, created_at: '2026-07-31T10:00:02', tts: { engine: 'browser' } },
+      { id: 2, role: 'assistant', stage: 'llm', text: '好的，需要确认后才会创建', audio_path: null, duration_ms: null, elapsed_ms: 3200, prompt_tokens: 120, completion_tokens: 480, created_at: '2026-07-31T10:00:02', tts: { engine: 'browser' } },
       { id: 3, role: 'tool', stage: 'tool', text: '工具调用：set_reminder(...) → 等待用户确认', audio_path: null, duration_ms: null, created_at: '2026-07-31T10:00:03' },
       { id: 4, role: 'user', stage: 'asr', text: '确认执行', audio_path: 'demo/demo_12.wav', duration_ms: 1200, created_at: '2026-07-31T10:00:05' },
       { id: 5, role: 'tool', stage: 'tool', text: '✅ 提醒已创建', audio_path: null, duration_ms: null, created_at: '2026-07-31T10:00:06' },
@@ -69,6 +69,27 @@ describe('ReplayView', () => {
     const ttsTags = w.findAll('.tts-tag')
     expect(ttsTags).toHaveLength(2)
     expect(ttsTags[0].text()).toContain('browser')
+  })
+
+  it('shows LLM metrics on llm messages', async () => {
+    const w = await mountView()
+    const metrics = w.findAll('.tl-metrics')
+    expect(metrics).toHaveLength(1)
+    expect(metrics[0].text()).toContain('LLM 3.2 秒 · ↑120 ↓480')
+  })
+
+  it('hides LLM metrics when metrics absent', async () => {
+    const payload = replayPayload()
+    payload.timeline = payload.timeline.map((t) => ({
+      ...t,
+      elapsed_ms: null,
+      prompt_tokens: null,
+      completion_tokens: null,
+    }))
+    mocks.fetchReplay.mockResolvedValue(payload)
+    const w = await mountView()
+    expect(w.findAll('.tl-metrics')).toHaveLength(0)
+    expect(w.text()).not.toContain('· ↑')
   })
 
   it('shows error state when replay fails', async () => {

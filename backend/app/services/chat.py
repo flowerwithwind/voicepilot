@@ -139,9 +139,13 @@ def tool_preview(tool: str, args: dict[str, Any]) -> str:
 
 
 def _run_tool_and_reply(
-    session_id: int, user_text: str, tool: str, args: dict[str, Any]
+    session_id: int,
+    user_text: str,
+    tool: str,
+    args: dict[str, Any],
+    llm_metrics: dict[str, int | None] | None = None,
 ) -> Iterator[dict]:
-    """执行工具 → 结果注入 → 生成最终回复。"""
+    """执行工具 → 结果注入 → 生成最终回复（llm_metrics：KN-04 本轮 LLM 指标）。"""
     try:
         result = execute_tool(session_id, tool, args)
     except ValueError as e:
@@ -150,7 +154,14 @@ def _run_tool_and_reply(
     db.add_message(session_id, "tool", f"[{tool}] {result}")
     reply = f"✅ 已完成：{result}"
     yield from _stream_text(reply)
-    db.add_message(session_id, "assistant", reply)
+    db.add_message(
+        session_id,
+        "assistant",
+        reply,
+        elapsed_ms=(llm_metrics or {}).get("elapsed_ms"),
+        prompt_tokens=(llm_metrics or {}).get("prompt_tokens"),
+        completion_tokens=(llm_metrics or {}).get("completion_tokens"),
+    )
     yield {"type": "done", "message_id": db.list_messages(session_id)[-1]["id"], "reply": reply}
 
 
@@ -172,7 +183,8 @@ def _plain_reply(session_id: int, user_text: str) -> Iterator[dict]:
                 reply_parts.append(ev["text"])
                 yield ev
             elif ev["type"] == "tool_call":
-                # LLM 模式工具调用：同样进入确认流程
+                # LLM 模式工具调用：同样进入确认流程；流已结束，采集 KN-04 指标
+                llm_metrics = client.last_metrics()
                 request_id = uuid.uuid4().hex[:12]
                 try:
                     args = json.loads(ev["arguments"] or "{}")
@@ -188,12 +200,21 @@ def _plain_reply(session_id: int, user_text: str) -> Iterator[dict]:
                 if ev["name"] in SENSITIVE_TOOLS:
                     yield {"type": "await_approval", "request_id": request_id}
                     return
-                yield from _run_tool_and_reply(session_id, user_text, ev["name"], args)
+                yield from _run_tool_and_reply(
+                    session_id, user_text, ev["name"], args, llm_metrics=llm_metrics
+                )
                 return
         reply = "".join(reply_parts).strip() or "（模型未返回内容）"
     except LLMError as e:
         logger.warning(f"LLM 调用失败，降级规则回复：{e}")
         reply = rule_reply(user_text) + f"（模型异常：{e}）"
         yield from _stream_text(reply)
-    db.add_message(session_id, "assistant", reply)
+    db.add_message(
+        session_id,
+        "assistant",
+        reply,
+        elapsed_ms=client.last_elapsed_ms,
+        prompt_tokens=client.last_prompt_tokens,
+        completion_tokens=client.last_completion_tokens,
+    )
     yield {"type": "done", "message_id": db.list_messages(session_id)[-1]["id"], "reply": reply}

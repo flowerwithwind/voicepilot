@@ -30,6 +30,9 @@ class MessageOut(BaseModel):
     content: str
     audio_path: str | None = None
     duration_ms: int | None = None
+    elapsed_ms: int | None = None  # KN-04：LLM 耗时（毫秒）
+    prompt_tokens: int | None = None  # KN-04：输入 token
+    completion_tokens: int | None = None  # KN-04：输出 token
     created_at: str
 
 

@@ -267,7 +267,13 @@ class RealtimeHandler:
         else:
             await self._plain_flow(text)
 
-    async def _tool_flow(self, user_text: str, tool: str, args: dict[str, Any]) -> None:
+    async def _tool_flow(
+        self,
+        user_text: str,
+        tool: str,
+        args: dict[str, Any],
+        llm_metrics: dict[str, int | None] | None = None,
+    ) -> None:
         request_id = uuid.uuid4().hex[:12]
         preview = tool_preview(tool, args)
         await self.ws.send_json(
@@ -294,7 +300,7 @@ class RealtimeHandler:
             await self.ws.send_json({"type": "error", "detail": str(e)})
             return
         db.add_message(self.session_id, "tool", f"[{tool}] {result}")
-        await self._stream_and_done(f"✅ 已完成：{result}")
+        await self._stream_and_done(f"✅ 已完成：{result}", llm_metrics)
 
     async def _plain_flow(self, user_text: str) -> None:
         client = settings_svc.build_llm_client()
@@ -328,11 +334,13 @@ class RealtimeHandler:
                 await self.ws.send_json({"type": "delta", "text": ev["text"]})
             elif ev["type"] == "tool_call":
                 name = ev.get("name", "")
+                # LLM 流已结束，采集 KN-04 指标并随本轮回复落库
+                llm_metrics = client.last_metrics()
                 try:
                     args = json.loads(ev.get("arguments") or "{}")
                 except ValueError:
                     args = {}
-                await self._tool_flow(user_text, name, args)
+                await self._tool_flow(user_text, name, args, llm_metrics=llm_metrics)
                 return
             elif ev["type"] == "_llm_error":
                 await self.ws.send_json({"type": "error", "detail": f"模型调用失败：{ev['detail']}"})
@@ -341,21 +349,32 @@ class RealtimeHandler:
         reply = "".join(reply_parts).strip() or "（模型未返回内容）"
         if self._should_abort():
             return
-        await self._finish_reply(reply)
+        await self._finish_reply(reply, client.last_metrics())
 
     # ---------- 输出 ----------
-    async def _stream_and_done(self, reply: str) -> None:
+    async def _stream_and_done(
+        self, reply: str, llm_metrics: dict[str, int | None] | None = None
+    ) -> None:
         for i in range(0, len(reply), STREAM_CHUNK):
             if self._should_abort():
                 return
             await self.ws.send_json({"type": "delta", "text": reply[i : i + STREAM_CHUNK]})
             await asyncio.sleep(STREAM_INTERVAL)
-        await self._finish_reply(reply)
+        await self._finish_reply(reply, llm_metrics)
 
-    async def _finish_reply(self, reply: str) -> None:
+    async def _finish_reply(
+        self, reply: str, llm_metrics: dict[str, int | None] | None = None
+    ) -> None:
         if self._should_abort():
             return
-        message = db.add_message(self.session_id, "assistant", reply)
+        message = db.add_message(
+            self.session_id,
+            "assistant",
+            reply,
+            elapsed_ms=(llm_metrics or {}).get("elapsed_ms"),
+            prompt_tokens=(llm_metrics or {}).get("prompt_tokens"),
+            completion_tokens=(llm_metrics or {}).get("completion_tokens"),
+        )
         tts_ev = synthesize(reply)
         await self.ws.send_json(tts_ev)
         await self.ws.send_json(

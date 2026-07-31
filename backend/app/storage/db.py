@@ -23,6 +23,9 @@ CREATE TABLE IF NOT EXISTS messages (
     content TEXT NOT NULL,
     audio_path TEXT,
     duration_ms INTEGER,
+    elapsed_ms INTEGER,
+    prompt_tokens INTEGER,
+    completion_tokens INTEGER,
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, id);
@@ -39,6 +42,20 @@ CREATE TABLE IF NOT EXISTS reminders (
     done INTEGER NOT NULL DEFAULT 0
 );
 """
+# KN-04：messages 指标列（LLM 耗时 / token 用量）
+_METRICS_COLUMNS = (
+    ("elapsed_ms", "INTEGER"),
+    ("prompt_tokens", "INTEGER"),
+    ("completion_tokens", "INTEGER"),
+)
+
+
+def _ensure_metrics_columns(conn: sqlite3.Connection) -> None:
+    """KN-04：旧库 messages 缺列时幂等补列（新建库已含，无需变更）。"""
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(messages)")}
+    for col, coltype in _METRICS_COLUMNS:
+        if col not in existing:
+            conn.execute("ALTER TABLE messages ADD COLUMN " + col + " " + coltype)
 
 
 def _conn() -> sqlite3.Connection:
@@ -54,10 +71,11 @@ def now_iso() -> str:
 
 
 def init_db() -> None:
-    """建表（幂等）。"""
+    """建表（幂等），并为旧库补齐 KN-04 指标列。"""
     conn = _conn()
     try:
         conn.executescript(_SCHEMA)
+        _ensure_metrics_columns(conn)
         conn.commit()
     finally:
         conn.close()
@@ -85,15 +103,29 @@ def add_message(
     content: str,
     audio_path: str | None = None,
     duration_ms: int | None = None,
+    elapsed_ms: int | None = None,
+    prompt_tokens: int | None = None,
+    completion_tokens: int | None = None,
 ) -> dict[str, Any]:
-    """追加消息并刷新会话 updated_at。"""
+    """追加消息并刷新会话 updated_at（KN-04：可选 LLM 耗时/token 指标）。"""
     now = now_iso()
     conn = _conn()
     try:
         cur = conn.execute(
-            "INSERT INTO messages(session_id, role, content, audio_path, duration_ms, created_at) "
-            "VALUES(?, ?, ?, ?, ?, ?)",
-            (session_id, role, content, audio_path, duration_ms, now),
+            "INSERT INTO messages(session_id, role, content, audio_path, duration_ms, "
+            "elapsed_ms, prompt_tokens, completion_tokens, created_at) "
+            "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                session_id,
+                role,
+                content,
+                audio_path,
+                duration_ms,
+                elapsed_ms,
+                prompt_tokens,
+                completion_tokens,
+                now,
+            ),
         )
         conn.execute("UPDATE sessions SET updated_at=? WHERE id=?", (now, session_id))
         conn.commit()

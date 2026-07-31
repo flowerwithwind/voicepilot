@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Iterator
 
 import httpx
@@ -31,6 +32,10 @@ class LLMClient:
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.timeout = timeout
+        # KN-04：最近一次流式调用的可观测指标（LLM 耗时 / token 用量）
+        self.last_elapsed_ms: int | None = None
+        self.last_prompt_tokens: int | None = None
+        self.last_completion_tokens: int | None = None
 
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self.api_key}"}
@@ -53,11 +58,17 @@ class LLMClient:
             "model": self.model,
             "messages": messages,
             "stream": True,
+            "stream_options": {"include_usage": True},  # KN-04：流末回传 usage
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
         }
         if tools:
             payload["tools"] = tools
+        # KN-04：每次调用前重置指标，避免串用上一次结果
+        self.last_elapsed_ms = None
+        self.last_prompt_tokens = None
+        self.last_completion_tokens = None
+        started = time.monotonic()
         try:
             with (
                 httpx.Client(timeout=self.timeout) as client,
@@ -76,8 +87,18 @@ class LLMClient:
                             break
                         try:
                             chunk = json.loads(data)
+                        except ValueError:
+                            continue
+                        usage = chunk.get("usage")
+                        if usage:
+                            # KN-04：流末 usage chunk（choices 为空），记录 token 用量
+                            if usage.get("prompt_tokens") is not None:
+                                self.last_prompt_tokens = int(usage["prompt_tokens"])
+                            if usage.get("completion_tokens") is not None:
+                                self.last_completion_tokens = int(usage["completion_tokens"])
+                        try:
                             delta = chunk["choices"][0].get("delta", {})
-                        except (KeyError, IndexError, ValueError):
+                        except (KeyError, IndexError):
                             continue
                         text = delta.get("content")
                         if text:
@@ -93,6 +114,8 @@ class LLMClient:
                                 slot["name"] = tc["function"]["name"]
                             if tc.get("function", {}).get("arguments"):
                                 slot["arguments"] += tc["function"]["arguments"]
+                    # KN-04：流式响应结束，记录耗时（毫秒）
+                    self.last_elapsed_ms = int((time.monotonic() - started) * 1000)
                     for slot in tool_buf.values():
                         yield {
                             "type": "tool_call",
@@ -110,6 +133,14 @@ class LLMClient:
             if ev["type"] == "delta":
                 parts.append(ev["text"])
         return "".join(parts)
+
+    def last_metrics(self) -> dict[str, int | None]:
+        """KN-04：返回最近一次流式调用的耗时/token 指标（未采集时为 None）。"""
+        return {
+            "elapsed_ms": self.last_elapsed_ms,
+            "prompt_tokens": self.last_prompt_tokens,
+            "completion_tokens": self.last_completion_tokens,
+        }
 
     def test(self) -> str | None:
         """连通性测试：返回错误信息或 None。"""

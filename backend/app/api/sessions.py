@@ -65,6 +65,9 @@ def replay_session(session_id: int) -> dict:
             "text": r["content"],
             "audio_path": r.get("audio_path"),
             "duration_ms": r.get("duration_ms"),
+            "elapsed_ms": r.get("elapsed_ms"),
+            "prompt_tokens": r.get("prompt_tokens"),
+            "completion_tokens": r.get("completion_tokens"),
             "created_at": r["created_at"],
         }
         # assistant 消息含 TTS 播报阶段（浏览器端 speechSynthesis）

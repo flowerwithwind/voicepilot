@@ -19,10 +19,10 @@
 - 影响：Windows 本地可访问；Docker/Linux 容器中旧数据回听 404（Path 把反斜杠当文件名一部分）。
 - 修复：读取侧归一化（app/utils/audio_path.py::normalize_audio_path，`\\` → `/`）覆盖文件回听（storage/files.py::safe_audio_path）、消息读取（storage/db.py::list_messages）与前端 URL 拼接（src/api/audio.js::audioUrl）；另提供一次性幂等迁移脚本 backend/scripts/migrate_audio_paths.py。
 
-### KN-04（待处理）回放未采集 LLM 耗时与 token
+### KN-04（已修复：C2）回放未采集 LLM 耗时与 token
 - 现象：需求 F8 写明「ASR 文本 / LLM 耗时 / token / 工具调用链」可观测，当前回放覆盖 ASR 文本、工具链、TTS 阶段，但 LLM 耗时/token 未落库。
 - 影响：面试演示难以量化 LLM 性能指标。
-- 建议：services/chat.py 与 realtime.py 在 LLM 流结束后记录 elapsed_ms + usage（DeepSeek 响应含 usage），存入 messages 扩展列或独立 metrics 表，回放页新增 LLM 阶段耗时展示。
+- 修复：LLMClient 统一采集（app/llm/client.py 增加 stream_options.include_usage，流末记录 last_elapsed_ms / last_prompt_tokens / last_completion_tokens）；services/chat.py 与 api/realtime.py 在 LLM 流结束后随 assistant 消息落库；messages 表扩展 elapsed_ms / prompt_tokens / completion_tokens（init_db 幂等 ALTER 补列），回放 API 返回指标字段，回放页新增「LLM 3.2s · ↑120 ↓480」展示（无指标优雅隐藏）。
 
 ## P3
 

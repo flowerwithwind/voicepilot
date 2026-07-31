@@ -31,6 +31,9 @@
             <span class="tl-role">{{ roleLabel(item.role) }}</span>
             <span class="tl-time">{{ formatClock(item.created_at) }}</span>
             <span v-if="item.durationMs" class="tl-duration">音频 {{ formatDuration(item.durationMs / 1000) }}</span>
+            <span v-if="hasLlmMetrics(item)" class="tl-metrics">
+              LLM {{ formatDuration(item.elapsedMs / 1000) }} · ↑{{ item.promptTokens }} ↓{{ item.completionTokens }}
+            </span>
           </div>
           <p class="tl-text">{{ item.text }}</p>
           <div class="tl-actions">
@@ -97,6 +100,11 @@ function roleLabel(role) {
   return '助手'
 }
 
+// KN-04：LLM 消息存在耗时/token 指标时才展示，无指标优雅隐藏
+function hasLlmMetrics(item) {
+  return item.stage === 'llm' && (item.elapsedMs > 0 || item.promptTokens > 0 || item.completionTokens > 0)
+}
+
 async function load() {
   loading.value = true
   error.value = ''
@@ -108,6 +116,9 @@ async function load() {
       ...t,
       audioPath: t.audio_path || '',
       durationMs: t.duration_ms || 0,
+      elapsedMs: t.elapsed_ms || 0,
+      promptTokens: t.prompt_tokens || 0,
+      completionTokens: t.completion_tokens || 0,
     }))
   } catch (e) {
     error.value = e.message || '加载回放失败'
@@ -284,7 +295,8 @@ onMounted(load)
   font-size: 11px;
   color: rgba(255, 255, 255, 0.35);
 }
-.tl-duration {
+.tl-duration,
+.tl-metrics {
   font-size: 11px;
   color: rgba(255, 255, 255, 0.35);
 }
@@ -344,7 +356,7 @@ html.light .back-btn { color: rgba(28, 34, 55, 0.7); border-color: rgba(28, 34, 
 html.light .back-btn:hover { background: rgba(28, 34, 55, 0.06); }
 html.light .tl-card { background: #ffffff; border-color: rgba(28, 34, 55, 0.1); }
 html.light .tl-text { color: #1c2237; }
-html.light .tl-role, html.light .tl-time, html.light .tl-duration { color: rgba(28, 34, 55, 0.5); }
+html.light .tl-role, html.light .tl-time, html.light .tl-duration, html.light .tl-metrics { color: rgba(28, 34, 55, 0.5); }
 html.light .act-btn { color: #1c2237; border-color: rgba(28, 34, 55, 0.2); background: rgba(28, 34, 55, 0.05); }
 html.light .legend-item { color: rgba(28, 34, 55, 0.6); }
 @media (max-width: 768px) {
