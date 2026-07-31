@@ -99,7 +99,12 @@ def build_llm_client() -> LLMClient:
 def test_connection(data: dict[str, Any]) -> dict[str, Any]:
     """用给定配置（或当前配置）测试模型连接。"""
     cur = get_model_settings()
-    cur.update({k: v for k, v in data.items() if k in cur})
+    incoming = {k: v for k, v in data.items() if k in cur}
+    if "api_key" in incoming:
+        key = incoming["api_key"]
+        if key == "" or key == mask_api_key(cur.get("api_key", "")):
+            del incoming["api_key"]  # 空/脱敏值视为不修改，避免用掩码串测试
+    cur.update(incoming)
     client = LLMClient(
         base_url=cur["base_url"],
         api_key=cur["api_key"],

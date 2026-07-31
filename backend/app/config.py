@@ -22,7 +22,7 @@ ASR_BASE_URL = os.getenv("VOICEPILOT_ASR_BASE_URL", "")
 ASR_API_KEY = os.getenv("VOICEPILOT_ASR_API_KEY", "")
 ASR_MODEL = os.getenv("VOICEPILOT_ASR_MODEL", "whisper-1")
 
-VERSION = "0.5.0"
+VERSION = "1.0.0"
 APP_NAME = "VoicePilot"
 
 

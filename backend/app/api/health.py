@@ -5,6 +5,7 @@ from fastapi import APIRouter
 
 from app.config import APP_NAME, ASR_ENGINE, VERSION
 from app.models import HealthOut
+from app.services import settings as settings_svc
 
 router = APIRouter(prefix="/api", tags=["health"])
 
@@ -16,5 +17,5 @@ def health() -> HealthOut:
         version=VERSION,
         app=APP_NAME,
         asr_engine=ASR_ENGINE,
-        capabilities={"asr": True, "llm": False, "tts": False},
+        capabilities=settings_svc.get_capabilities(),
     )
