@@ -1,9 +1,16 @@
 /**
  * MediaRecorder + WebAudio 录音封装。
- * 状态机：idle → recording → stopping → idle（成功产出 blob）
- * 输出：实时电平（0~1）与录音时长，供波形/按钮动画使用。
+ * 状态机：idle → recording → stopping → idle（成功产出 blob）。
+ *
+ * M3 实时模式：start({ onPcm }) 时额外启动 ScriptProcessor 管线，
+ * 把麦克风重采样为 16kHz 单声道 PCM16 分片（Int16Array），
+ * 通过 onPcm 回调喂给 WebSocket（服务端 VAD / 增量 ASR）。
+ * 输出：实时电平（0~1）与录音时长，供波形/按钮动效使用。
  */
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, getCurrentInstance, onBeforeUnmount, ref } from 'vue'
+
+const PCM_TARGET_RATE = 16000
+const PCM_BUFFER_SIZE = 4096
 
 export function useRecorder() {
   const state = ref('idle') // idle | recording | stopping | error
@@ -16,6 +23,9 @@ export function useRecorder() {
   let stream = null
   let audioCtx = null
   let analyser = null
+  let processor = null
+  let silentGain = null
+  let pcmCb = null
   let rafId = 0
   let chunks = []
   let startAt = 0
@@ -45,11 +55,56 @@ export function useRecorder() {
     rafId = requestAnimationFrame(sampleLevel)
   }
 
-  async function start() {
+  /** 麦克风 → 16kHz 单声道 PCM16：线性重采样，静音增益路由避免回声。 */
+  function setupPcmPipeline(source) {
+    if (!pcmCb || !audioCtx) return
+    const ratio = audioCtx.sampleRate / PCM_TARGET_RATE
+    processor = audioCtx.createScriptProcessor(PCM_BUFFER_SIZE, 1, 1)
+    silentGain = audioCtx.createGain()
+    silentGain.gain.value = 0
+    processor.onaudioprocess = (e) => {
+      const input = e.inputBuffer.getChannelData(0)
+      const outLen = Math.max(1, Math.floor(input.length / ratio))
+      const out = new Int16Array(outLen)
+      for (let i = 0; i < outLen; i += 1) {
+        const s = input[Math.floor(i * ratio)] || 0
+        const c = Math.max(-1, Math.min(1, s))
+        out[i] = c < 0 ? Math.round(c * 0x8000) : Math.round(c * 0x7fff)
+      }
+      if (pcmCb) pcmCb(out)
+    }
+    source.connect(processor)
+    processor.connect(silentGain)
+    silentGain.connect(audioCtx.destination)
+  }
+
+  function teardownPcm() {
+    if (processor) {
+      processor.onaudioprocess = null
+      try {
+        processor.disconnect()
+      } catch {
+        /* ignore */
+      }
+      processor = null
+    }
+    if (silentGain) {
+      try {
+        silentGain.disconnect()
+      } catch {
+        /* ignore */
+      }
+      silentGain = null
+    }
+    pcmCb = null
+  }
+
+  async function start(options = {}) {
     if (state.value === 'recording') return
     error.value = ''
     blob.value = null
     discarded = false
+    pcmCb = typeof options.onPcm === 'function' ? options.onPcm : null
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true })
     } catch {
@@ -58,11 +113,14 @@ export function useRecorder() {
       return
     }
     try {
-      audioCtx = new AudioContext()
+      const Ctx = window.AudioContext || window.webkitAudioContext
+      audioCtx = new Ctx()
+      if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {})
       const source = audioCtx.createMediaStreamSource(stream)
       analyser = audioCtx.createAnalyser()
       analyser.fftSize = 1024
       source.connect(analyser)
+      setupPcmPipeline(source)
 
       mediaRecorder = new MediaRecorder(stream, pickMimeType() ? { mimeType: pickMimeType() } : undefined)
       chunks = []
@@ -136,6 +194,7 @@ export function useRecorder() {
 
   function cleanupTracks() {
     stopMeters()
+    teardownPcm()
     stream?.getTracks().forEach((t) => t.stop())
     audioCtx?.close().catch(() => {})
     stream = null
@@ -145,11 +204,14 @@ export function useRecorder() {
     level.value = 0
   }
 
-  onBeforeUnmount(() => {
-    stopMeters()
-    stream?.getTracks().forEach((t) => t.stop())
-    audioCtx?.close().catch(() => {})
-  })
+  if (getCurrentInstance()) {
+    onBeforeUnmount(() => {
+      stopMeters()
+      teardownPcm()
+      stream?.getTracks().forEach((t) => t.stop())
+      audioCtx?.close().catch(() => {})
+    })
+  }
 
   return { state, level, duration, error, blob, isSupported, start, stop, cancel }
 }

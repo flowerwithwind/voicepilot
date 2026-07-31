@@ -1,6 +1,7 @@
 """ASR 适配层：Provider 抽象 + 规则回声兜底（无 Key 可演示）。
 
-M1 提供 RuleEchoProvider；M2 起可扩展 OpenAI 兼容 / FunASR / 厂商 Provider。
+M1 提供 RuleEchoProvider；M2 起可扩展 OpenAI 兼容 / FunASR / 厂商 Provider；
+M3 起支持流式增量（partial_text，演示模式模拟逐步吐字）。
 """
 from __future__ import annotations
 
@@ -34,6 +35,10 @@ class ASRProvider(ABC):
     def transcribe(self, audio_path: Path, duration: float | None = None) -> TranscriptionResult:
         """转写音频文件为文本。"""
 
+    def partial_text(self, duration: float) -> str:
+        """流式增量结果（部分识别中）；不支持增量的引擎可保持默认实现。"""
+        return f"（识别中… {duration:.1f} 秒）"
+
 
 def _read_wav_duration(audio_path: Path) -> float | None:
     """仅对 wav 精确读取时长；其他格式返回 None。"""
@@ -48,6 +53,10 @@ class RuleEchoProvider(ASRProvider):
     """演示兜底：根据音频元数据生成回声文本，验证整条管道可用。"""
 
     name = "rule"
+
+    def partial_text(self, duration: float) -> str:
+        """流式增量结果（演示：模拟 partial 逐步吐字）。"""
+        return f"（演示转写）正在识别… {duration:.1f} 秒"
 
     def transcribe(self, audio_path: Path, duration: float | None = None) -> TranscriptionResult:
         size_kb = audio_path.stat().st_size / 1024.0

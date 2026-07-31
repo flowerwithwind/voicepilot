@@ -45,7 +45,7 @@ def build_history(session_id: int, limit: int = MAX_HISTORY) -> list[dict]:
 # ---- 规则降级（无 Key 演示） ----
 _RULE_INTRO = "（规则模式）我是 VoicePilot 的本地回复引擎。"
 
-def _rule_reply(text: str) -> str:
+def rule_reply(text: str) -> str:
     t = text.strip()
     if not t:
         return "请说点什么吧～"
@@ -103,7 +103,7 @@ def stream_chat(
     if intent and not approval:
         tool, args = intent
         request_id = uuid.uuid4().hex[:12]
-        preview = _tool_preview(tool, args)
+        preview = tool_preview(tool, args)
         yield {"type": "tool_call", "request_id": request_id, "tool": tool, "args": args, "preview": preview}
         if tool in SENSITIVE_TOOLS:
             yield {"type": "await_approval", "request_id": request_id}
@@ -128,7 +128,7 @@ def stream_chat(
     yield from _plain_reply(session_id, user_text)
 
 
-def _tool_preview(tool: str, args: dict[str, Any]) -> str:
+def tool_preview(tool: str, args: dict[str, Any]) -> str:
     if tool == "set_reminder":
         return f"设置提醒：{args.get('content', '')}（{args.get('remind_at', '')}）"
     if tool == "query_weather":
@@ -158,7 +158,7 @@ def _plain_reply(session_id: int, user_text: str) -> Iterator[dict]:
     """普通对话：LLM 优先，无 Key 规则降级。"""
     client = settings_svc.build_llm_client()
     if not client.api_key:
-        reply = _rule_reply(user_text)
+        reply = rule_reply(user_text)
         yield from _stream_text(reply)
         db.add_message(session_id, "assistant", reply)
         yield {"type": "done", "message_id": db.list_messages(session_id)[-1]["id"], "reply": reply}
@@ -183,7 +183,7 @@ def _plain_reply(session_id: int, user_text: str) -> Iterator[dict]:
                     "request_id": request_id,
                     "tool": ev["name"],
                     "args": args,
-                    "preview": _tool_preview(ev["name"], args),
+                    "preview": tool_preview(ev["name"], args),
                 }
                 if ev["name"] in SENSITIVE_TOOLS:
                     yield {"type": "await_approval", "request_id": request_id}
@@ -193,7 +193,7 @@ def _plain_reply(session_id: int, user_text: str) -> Iterator[dict]:
         reply = "".join(reply_parts).strip() or "（模型未返回内容）"
     except LLMError as e:
         logger.warning(f"LLM 调用失败，降级规则回复：{e}")
-        reply = _rule_reply(user_text) + f"（模型异常：{e}）"
+        reply = rule_reply(user_text) + f"（模型异常：{e}）"
         yield from _stream_text(reply)
     db.add_message(session_id, "assistant", reply)
     yield {"type": "done", "message_id": db.list_messages(session_id)[-1]["id"], "reply": reply}

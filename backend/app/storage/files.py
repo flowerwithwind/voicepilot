@@ -38,3 +38,15 @@ def safe_store(upload: UploadFile) -> tuple[Path, int]:
     path = AUDIO_DIR / f"{uuid.uuid4().hex}{ext}"
     path.write_bytes(data)
     return path, size
+
+REALTIME_DIR = AUDIO_DIR / "realtime"
+
+
+def save_realtime_pcm(pcm16: bytes, sample_rate: int = 16000) -> Path:
+    """保存实时语音分段为 WAV（M4 回听用），返回绝对路径。"""
+    from app.audio.pcm import write_wav
+
+    REALTIME_DIR.mkdir(parents=True, exist_ok=True)
+    path = REALTIME_DIR / f"{uuid.uuid4().hex}.wav"
+    write_wav(path, pcm16, sample_rate)
+    return path
