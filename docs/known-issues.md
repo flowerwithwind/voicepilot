@@ -14,10 +14,10 @@
 - 现象：GET /api/health 硬编码 capabilities={asr:True, llm:False, tts:False}，配置 Key 后仍报 llm 不可用。
 - 修复：api/health.py 改调 settings_svc.get_capabilities()，与设置页口径一致。
 
-### KN-03（待处理）历史 audio_path 使用反斜杠分隔符
+### KN-03（已修复：C1）历史 audio_path 使用反斜杠分隔符
 - 现象：M4 早期版本把实时音频路径存为 realtime\xxx.wav（Windows 风格）；M4 后期起统一存正斜杠 realtime/xxx.wav。
 - 影响：Windows 本地可访问；Docker/Linux 容器中旧数据回听 404（Path 把反斜杠当文件名一部分）。
-- 建议：读取侧做归一化（audio_path.replace(/\\/g, '/')）或提供一次性数据迁移脚本。
+- 修复：读取侧归一化（app/utils/audio_path.py::normalize_audio_path，`\\` → `/`）覆盖文件回听（storage/files.py::safe_audio_path）、消息读取（storage/db.py::list_messages）与前端 URL 拼接（src/api/audio.js::audioUrl）；另提供一次性幂等迁移脚本 backend/scripts/migrate_audio_paths.py。
 
 ### KN-04（待处理）回放未采集 LLM 耗时与 token
 - 现象：需求 F8 写明「ASR 文本 / LLM 耗时 / token / 工具调用链」可观测，当前回放覆盖 ASR 文本、工具链、TTS 阶段，但 LLM 耗时/token 未落库。

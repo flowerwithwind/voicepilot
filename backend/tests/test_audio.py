@@ -110,3 +110,46 @@ def test_audio_file_traversal_blocked(client):
 
 def test_audio_file_missing(client):
     assert client.get("/api/audio/files/no-such-file.wav").status_code == 404
+
+def test_audio_file_backslash_path_served(client):
+    """KN-03：Windows 反斜杠风格 URL 经回放接口可正常读取（容器路径规则）。"""
+    from app.config import AUDIO_DIR
+
+    realtime_dir = AUDIO_DIR / "realtime"
+    realtime_dir.mkdir(parents=True, exist_ok=True)
+    wav = realtime_dir / "legacy-backslash.wav"
+    wav.write_bytes(b"RIFF\x00\x00\x00\x00WAVE")
+    # 前端旧版本会把反斜杠 encodeURIComponent 为 %5C
+    r = client.get("/api/audio/files/realtime%5Clegacy-backslash.wav")
+    assert r.status_code == 200, r.text
+    assert r.content == b"RIFF\x00\x00\x00\x00WAVE"
+    assert r.headers["content-type"].startswith("audio/")
+
+
+def test_legacy_backslash_audio_path_normalized_on_read(client):
+    """KN-03：DB 中反斜杠旧数据在 messages/replay 接口返回正斜杠。"""
+    from app.storage import db
+
+    sid = db.create_session()["id"]
+    db.add_message(sid, "user", "旧数据", audio_path="realtime\\legacy.wav", duration_ms=500)
+    msgs = client.get(f"/api/sessions/{sid}/messages").json()
+    assert msgs[0]["audio_path"] == "realtime/legacy.wav"
+    replay = client.get(f"/api/sessions/{sid}/replay").json()
+    assert replay["timeline"][0]["audio_path"] == "realtime/legacy.wav"
+
+
+def test_legacy_backslash_stored_data_playable(client):
+    """KN-03：反斜杠旧数据按容器路径规则可完整回听。"""
+    from app.config import AUDIO_DIR
+    from app.storage import db
+
+    realtime_dir = AUDIO_DIR / "realtime"
+    realtime_dir.mkdir(parents=True, exist_ok=True)
+    wav = realtime_dir / "legacy-stored.wav"
+    wav.write_bytes(b"RIFFlegacyWAVE")
+    sid = db.create_session()["id"]
+    db.add_message(sid, "user", "旧数据", audio_path="realtime\\legacy-stored.wav", duration_ms=500)
+    # 前端旧 URL（反斜杠被编码为 %5C）也应命中
+    r = client.get("/api/audio/files/realtime%5Clegacy-stored.wav")
+    assert r.status_code == 200, r.text
+    assert r.content == b"RIFFlegacyWAVE"

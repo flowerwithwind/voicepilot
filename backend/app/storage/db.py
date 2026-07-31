@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.config import DB_PATH
+from app.utils.audio_path import normalize_audio_path
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
@@ -140,7 +141,11 @@ def list_messages(session_id: int) -> list[dict[str, Any]]:
         rows = conn.execute(
             "SELECT * FROM messages WHERE session_id=? ORDER BY id", (session_id,)
         ).fetchall()
-        return [dict(r) for r in rows]
+        messages = [dict(r) for r in rows]
+        # 读取侧归一化：历史反斜杠 audio_path 统一为正斜杠（KN-03）
+        for m in messages:
+            m["audio_path"] = normalize_audio_path(m["audio_path"])
+        return messages
     finally:
         conn.close()
 

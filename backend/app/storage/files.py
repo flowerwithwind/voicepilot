@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi import UploadFile
 
 from app.config import ALLOWED_AUDIO_EXTS, AUDIO_DIR, MAX_AUDIO_BYTES
+from app.utils.audio_path import normalize_audio_path
 
 _FILENAME_RE = re.compile(r"^[^\/:*?<>|]{1,200}\.(webm|ogg|wav|mp3|m4a)$", re.IGNORECASE)
 
@@ -52,10 +53,11 @@ def save_realtime_pcm(pcm16: bytes, sample_rate: int = 16000) -> Path:
     return path
 
 def safe_audio_path(rel: str) -> Path | None:
-    """将相对 AUDIO_DIR 的路径解析为绝对路径；越界（路径穿越）返回 None。"""
+    """将相对 AUDIO_DIR 的路径解析为绝对路径；越界（路径穿越）返回 None。
+    读取侧归一化：Windows 反斜杠路径（旧数据）统一为正斜杠（KN-03）。"""
     try:
         base = AUDIO_DIR.resolve()
-        target = (base / rel).resolve()
+        target = (base / normalize_audio_path(rel)).resolve()
     except OSError:
         return None
     if target != base and base not in target.parents:

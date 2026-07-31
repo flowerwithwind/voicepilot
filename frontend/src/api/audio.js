@@ -10,8 +10,9 @@ export function transcribe(blob, { sessionId, duration } = {}) {
   return request('/api/audio/transcribe', { method: 'POST', body: form })
 }
 
-/** 拼接回听音频 URL（audio_path 相对 AUDIO_DIR）。 */
+/** 拼接回听音频 URL（audio_path 相对 AUDIO_DIR；兼容 Windows 反斜杠旧数据，KN-03）。*/
 export function audioUrl(audioPath) {
   if (!audioPath) return ''
-  return '/api/audio/files/' + audioPath.split('/').map(encodeURIComponent).join('/')
+  const normalized = String(audioPath).replace(/\\/g, '/')
+  return '/api/audio/files/' + normalized.split('/').map(encodeURIComponent).join('/')
 }
