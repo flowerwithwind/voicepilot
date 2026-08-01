@@ -1,0 +1,57 @@
+# VoicePilot 生产编排（服务器目录 /opt/voicepilot，由 GitHub Actions deploy.yml 生成）
+# 对外端口：后端 18101，浏览器 18181
+services:
+  backend:
+    image: ${DOCKER_USERNAME}/voicepilot-backend:${IMAGE_TAG:-latest}
+    container_name: voicepilot-backend
+    restart: unless-stopped
+    environment:
+      VOICEPILOT_DATA_DIR: /data
+      VOICEPILOT_ASR: ${VOICEPILOT_ASR:-rule}
+      VOICEPILOT_ASR_BASE_URL: ${VOICEPILOT_ASR_BASE_URL:-}
+      VOICEPILOT_ASR_API_KEY: ${VOICEPILOT_ASR_API_KEY:-}
+      VOICEPILOT_ASR_MODEL: ${VOICEPILOT_ASR_MODEL:-whisper-1}
+      TZ: Asia/Shanghai
+    volumes:
+      - voicepilot-data:/data
+    ports:
+      - "${BACKEND_PORT:-18101}:8010"
+    mem_limit: 512m
+    cpus: "1.0"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/api/health', timeout=4)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  frontend:
+    image: ${DOCKER_USERNAME}/voicepilot-frontend:${IMAGE_TAG:-latest}
+    container_name: voicepilot-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${HTTP_PORT:-18181}:80"
+    mem_limit: 128m
+    cpus: "0.5"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
+      interval: 30s
+      timeout: 8s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  voicepilot-data:

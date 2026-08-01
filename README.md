@@ -116,3 +116,16 @@ voicepilot/
 ├─ docker-compose.yml  # backend + frontend(nginx 同源反代 /api、/ws)
 └─ .github/workflows/  # CI：backend pytest/ruff · frontend vitest/build · docker build
 ```
+
+## 服务器自动部署（端口 18101 / 18181）
+
+`git push origin main` 触发 GitHub Actions `Deploy VoicePilot`：测试 → 构建推送 Docker Hub 镜像（`flowerwithwind/voicepilot-backend` / `voicepilot-frontend`）→ SSH 部署到 `/opt/voicepilot`（后端 18101，浏览器 18181）。
+
+仓库 Secrets 需配置：`DOCKER_USERNAME` `DOCKER_PASSWORD` `SERVER_HOST` `SERVER_USER` `SERVER_PASSWORD`（可选：`SERVER_PORT` `BACKEND_PORT` `HTTP_PORT` `VOICEPILOT_ASR` `VOICEPILOT_ASR_BASE_URL` `VOICEPILOT_ASR_API_KEY` `VOICEPILOT_ASR_MODEL`）。
+
+服务器一次性准备：
+
+```bash
+sudo mkdir -p /opt/voicepilot && sudo chown -R ubuntu:ubuntu /opt/voicepilot
+sudo ufw allow 18101/tcp && sudo ufw allow 18181/tcp
+```
